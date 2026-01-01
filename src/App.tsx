@@ -5,6 +5,8 @@ import { HealthService } from './services/health';
 import { ML } from './services/ml';
 import { AnomalyService } from './services/anomaly';
 import { appCategoryToCategory, appTransactionToTransaction, findCategoryIdByName } from './utils/typeAdapters';
+import { ToastContainer, showToast } from './components/Toast';
+import { DashboardSkeleton } from './components/Skeleton';
 
 // ============================================
 // TYPES
@@ -96,41 +98,61 @@ export default function App() {
     is_shared: boolean;
     is_credit: boolean;
   }) => {
-    if (isDemoMode) {
-      const newTx: AppTransaction = {
-        id: Date.now().toString(),
-        ...data,
-        created_at: new Date().toISOString(),
-        user: users.find(u => u.id === data.user_id)
-      };
-      setTransactions(prev => [newTx, ...prev]);
-      setShowAddForm(false);
-      return;
-    }
+    try {
+      if (isDemoMode) {
+        const newTx: AppTransaction = {
+          id: Date.now().toString(),
+          ...data,
+          created_at: new Date().toISOString(),
+          user: users.find(u => u.id === data.user_id)
+        };
+        setTransactions(prev => [newTx, ...prev]);
+        showToast('Транзакция добавлена', 'success');
+        setShowAddForm(false);
+        return;
+      }
 
-    const newTx = await db.transactions.create(data);
-    if (newTx) {
-      setTransactions(prev => [newTx, ...prev]);
+      const newTx = await db.transactions.create(data);
+      if (newTx) {
+        setTransactions(prev => [newTx, ...prev]);
+        showToast('Транзакция добавлена', 'success');
+      } else {
+        showToast('Ошибка при добавлении транзакции', 'error');
+      }
+      setShowAddForm(false);
+    } catch (error) {
+      showToast('Ошибка при добавлении транзакции', 'error');
+      console.error('Add transaction error:', error);
     }
-    setShowAddForm(false);
   };
 
   const handleDeleteTransaction = async (id: string) => {
-    if (isDemoMode) {
+    try {
+      if (isDemoMode) {
+        setTransactions(prev => prev.filter(t => t.id !== id));
+        showToast('Транзакция удалена', 'info');
+        return;
+      }
+      
+      await db.transactions.delete(id);
       setTransactions(prev => prev.filter(t => t.id !== id));
-      return;
+      showToast('Транзакция удалена', 'info');
+    } catch (error) {
+      showToast('Ошибка при удалении транзакции', 'error');
+      console.error('Delete transaction error:', error);
     }
-    
-    await db.transactions.delete(id);
-    setTransactions(prev => prev.filter(t => t.id !== id));
   };
 
   // Loading state
   if (loading) {
     return (
-      <div className="loading-screen">
-        <div className="loading-spinner" />
-        <p>Загрузка...</p>
+      <div className="app">
+        <header className="header">
+          <h1 className="header-title">Загрузка...</h1>
+        </header>
+        <main className="content">
+          <DashboardSkeleton />
+        </main>
       </div>
     );
   }
@@ -204,6 +226,9 @@ export default function App() {
         <TabButton icon="📈" label="Статистика" active={activeTab === 'stats'} onClick={() => setActiveTab('stats')} />
         <TabButton icon="⚙️" label="Настройки" active={activeTab === 'settings'} onClick={() => setActiveTab('settings')} />
       </nav>
+
+      {/* Toast Container */}
+      <ToastContainer />
     </div>
   );
 }
@@ -567,7 +592,16 @@ function HistoryTab({
       {/* Transactions */}
       <div className="card">
         {filtered.length === 0 ? (
-          <p className="empty-text">Нет транзакций</p>
+          <div className="empty-state">
+            <div className="empty-state-icon">📋</div>
+            <h3 className="empty-state-title">Нет транзакций</h3>
+            <p className="empty-state-description">
+              {filter === 'all' 
+                ? 'Начните добавлять транзакции, чтобы отслеживать свои финансы'
+                : `Нет ${filter === 'expense' ? 'расходов' : 'доходов'} за выбранный период`
+              }
+            </p>
+          </div>
         ) : (
           <div className="transactions-list">
             {filtered.map(tx => (
