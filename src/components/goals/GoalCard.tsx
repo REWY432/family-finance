@@ -27,13 +27,11 @@ export function GoalCard({ goal, onEdit, onDelete, onAddContribution }: GoalCard
             <span style={{ fontSize: '24px' }}>{goal.icon}</span>
             <h4 style={{ fontSize: '16px', fontWeight: '600' }}>{goal.name}</h4>
           </div>
-          {goal.deadline && (
+          {goal.deadline && typeof daysRemaining === 'number' && (
             <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-              {daysRemaining !== null && (
-                <span style={{ color: daysRemaining < 30 ? 'var(--red)' : 'var(--text-secondary)' }}>
-                  {daysRemaining > 0 ? `Осталось ${daysRemaining} дней` : 'Срок истёк'}
-                </span>
-              )}
+              <span style={{ color: daysRemaining < 30 ? 'var(--red)' : 'var(--text-secondary)' }}>
+                {daysRemaining > 0 ? `Осталось ${daysRemaining} дней` : 'Срок истёк'}
+              </span>
             </div>
           )}
         </div>
