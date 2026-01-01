@@ -282,7 +282,7 @@ export default function App() {
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
           percentage: (goalData.current_amount / goalData.target_amount) * 100,
-          days_remaining: goalData.deadline ? Math.ceil((new Date(goalData.deadline).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24)) : null
+          days_remaining: goalData.deadline ? Math.ceil((new Date(goalData.deadline).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24)) || undefined : undefined
         };
         setGoals(prev => editingGoal ? prev.map(g => g.id === editingGoal.id ? newGoal : g) : [...prev, newGoal]);
         showToast(editingGoal ? 'Цель обновлена' : 'Цель создана', 'success');

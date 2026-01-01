@@ -10,7 +10,7 @@ interface GoalCardProps {
 
 export function GoalCard({ goal, onEdit, onDelete, onAddContribution }: GoalCardProps) {
   const percentage = goal.percentage || (goal.current_amount / goal.target_amount * 100);
-  const daysRemaining = goal.deadline ? getDaysRemaining(goal.deadline) : null;
+  const daysRemaining = goal.deadline ? getDaysRemaining(goal.deadline) : undefined;
   const remaining = goal.target_amount - goal.current_amount;
   const isCompleted = goal.is_completed || percentage >= 100;
 
