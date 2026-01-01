@@ -1,94 +1,142 @@
 import { useState, useEffect } from 'react';
-import { isDemoMode, DemoData, demoFamilyMembers } from './services/demo-data';
-import { AnalyticsService } from './services/analytics';
-import { HealthService, HealthScore } from './services/health';
-import type { Transaction, Budget, Goal, Category } from './types';
+import { db, isDemoMode, AppUser, AppTransaction, AppCategory } from './lib/supabase';
 
 // ============================================
 // TYPES
 // ============================================
 
-type Tab = 'dashboard' | 'analytics' | 'health' | 'history' | 'settings';
+type Tab = 'dashboard' | 'history' | 'stats' | 'settings';
 
 // ============================================
 // MAIN APP
 // ============================================
 
 export default function App() {
+  const [isSetup, setIsSetup] = useState<boolean | null>(null);
+  const [users, setUsers] = useState<AppUser[]>([]);
+  const [transactions, setTransactions] = useState<AppTransaction[]>([]);
+  const [categories, setCategories] = useState<AppCategory[]>([]);
   const [activeTab, setActiveTab] = useState<Tab>('dashboard');
-  const [theme, setTheme] = useState<'light' | 'dark'>('dark');
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [budgets, setBudgets] = useState<Budget[]>([]);
-  const [goals, setGoals] = useState<Goal[]>([]);
-  const [categories, setCategories] = useState<Category[]>([]);
-  const [loading, setLoading] = useState(true);
   const [showAddForm, setShowAddForm] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [theme, setTheme] = useState<'light' | 'dark'>('dark');
 
-  // Load data
-  useEffect(() => {
-    loadData();
-  }, []);
-
-  // Theme
+  // Theme effect
   useEffect(() => {
     document.documentElement.classList.toggle('dark', theme === 'dark');
   }, [theme]);
 
+  // Initial load
+  useEffect(() => {
+    loadData();
+  }, []);
+
   const loadData = async () => {
     setLoading(true);
     
-    if (isDemoMode()) {
-      // Demo mode - use mock data
-      setTransactions(DemoData.transactions);
-      setBudgets(DemoData.budgets);
-      setGoals(DemoData.goals);
-      setCategories(DemoData.categories);
-    } else {
-      // Real Supabase - would load from DB
-      // TODO: Implement real data loading
+    if (isDemoMode) {
+      // Demo mode
+      setIsSetup(true);
+      setUsers([
+        { id: '1', name: 'Пользователь 1', color: '#007AFF', created_at: '' },
+        { id: '2', name: 'Пользователь 2', color: '#34C759', created_at: '' }
+      ]);
+      setCategories(defaultCategories);
+      setTransactions([]);
+      setLoading(false);
+      return;
     }
-    
+
+    // Load from Supabase
+    const [loadedUsers, loadedCategories, loadedTransactions] = await Promise.all([
+      db.users.list(),
+      db.categories.list(),
+      db.transactions.list()
+    ]);
+
+    setUsers(loadedUsers);
+    setCategories(loadedCategories.length > 0 ? loadedCategories : defaultCategories);
+    setTransactions(loadedTransactions);
+    setIsSetup(loadedUsers.length >= 2);
     setLoading(false);
   };
 
-  const handleAddTransaction = (newTx: Partial<Transaction>) => {
-    const tx: Transaction = {
-      id: `tx-${Date.now()}`,
-      family_id: 'family-1',
-      user_id: newTx.user_id || 'user-1',
-      type: newTx.type || 'expense',
-      amount: newTx.amount || 0,
-      currency: 'RUB',
-      category_id: newTx.category_id,
-      description: newTx.description,
-      date: newTx.date || new Date().toISOString(),
-      is_shared: newTx.is_shared || false,
-      is_recurring: false,
-      is_credit: newTx.is_credit || false,
-      tags: [],
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-      category: categories.find(c => c.id === newTx.category_id)
-    };
+  const handleSetupComplete = async (name1: string, name2: string) => {
+    if (isDemoMode) {
+      setUsers([
+        { id: '1', name: name1, color: '#007AFF', created_at: '' },
+        { id: '2', name: name2, color: '#34C759', created_at: '' }
+      ]);
+      setIsSetup(true);
+      return;
+    }
+
+    // Save to Supabase
+    const user1 = await db.users.create(name1, '#007AFF');
+    const user2 = await db.users.create(name2, '#34C759');
     
-    setTransactions(prev => [tx, ...prev]);
+    if (user1 && user2) {
+      setUsers([user1, user2]);
+      setIsSetup(true);
+    }
+  };
+
+  const handleAddTransaction = async (data: {
+    user_id: string;
+    type: 'income' | 'expense';
+    amount: number;
+    category: string;
+    description?: string;
+    date: string;
+    is_shared: boolean;
+    is_credit: boolean;
+  }) => {
+    if (isDemoMode) {
+      const newTx: AppTransaction = {
+        id: Date.now().toString(),
+        ...data,
+        created_at: new Date().toISOString(),
+        user: users.find(u => u.id === data.user_id)
+      };
+      setTransactions(prev => [newTx, ...prev]);
+      setShowAddForm(false);
+      return;
+    }
+
+    const newTx = await db.transactions.create(data);
+    if (newTx) {
+      setTransactions(prev => [newTx, ...prev]);
+    }
     setShowAddForm(false);
   };
 
-  // Calculate dashboard data
-  const dashboardData = AnalyticsService.getDashboardData(
-    transactions,
-    budgets,
-    goals,
-    demoFamilyMembers.map(m => ({ user_id: m.user_id, nickname: m.nickname || '' }))
-  );
+  const handleDeleteTransaction = async (id: string) => {
+    if (isDemoMode) {
+      setTransactions(prev => prev.filter(t => t.id !== id));
+      return;
+    }
+    
+    await db.transactions.delete(id);
+    setTransactions(prev => prev.filter(t => t.id !== id));
+  };
 
-  // Calculate health score
-  const healthAnalysis = HealthService.analyzeFinancialHealth(transactions, budgets, goals);
-
+  // Loading state
   if (loading) {
-    return <LoadingScreen />;
+    return (
+      <div className="loading-screen">
+        <div className="loading-spinner" />
+        <p>Загрузка...</p>
+      </div>
+    );
   }
+
+  // Setup screen
+  if (!isSetup) {
+    return <SetupScreen onComplete={handleSetupComplete} />;
+  }
+
+  // Calculate stats
+  const stats = calculateStats(transactions, users);
 
   return (
     <div className="app">
@@ -96,41 +144,47 @@ export default function App() {
       <header className="header">
         <h1 className="header-title">
           {activeTab === 'dashboard' && 'Обзор'}
-          {activeTab === 'analytics' && 'Аналитика'}
-          {activeTab === 'health' && 'Здоровье'}
           {activeTab === 'history' && 'История'}
+          {activeTab === 'stats' && 'Статистика'}
           {activeTab === 'settings' && 'Настройки'}
         </h1>
-        {isDemoMode() && <span className="demo-badge">DEMO</span>}
+        {isDemoMode && <span className="demo-badge">DEMO</span>}
       </header>
 
       {/* Content */}
       <main className="content">
         {activeTab === 'dashboard' && (
-          <DashboardTab data={dashboardData} health={healthAnalysis.score} />
-        )}
-        {activeTab === 'analytics' && (
-          <AnalyticsTab transactions={transactions} />
-        )}
-        {activeTab === 'health' && (
-          <HealthTab analysis={healthAnalysis} />
+          <DashboardTab stats={stats} users={users} transactions={transactions} />
         )}
         {activeTab === 'history' && (
-          <HistoryTab transactions={transactions} />
+          <HistoryTab 
+            transactions={transactions} 
+            users={users}
+            onDelete={handleDeleteTransaction}
+          />
+        )}
+        {activeTab === 'stats' && (
+          <StatsTab stats={stats} users={users} transactions={transactions} />
         )}
         {activeTab === 'settings' && (
-          <SettingsTab theme={theme} setTheme={setTheme} />
+          <SettingsTab 
+            theme={theme} 
+            setTheme={setTheme}
+            users={users}
+            setUsers={setUsers}
+          />
         )}
       </main>
 
-      {/* FAB - Add Transaction Button */}
+      {/* FAB */}
       <button className="fab" onClick={() => setShowAddForm(true)}>
         <span>+</span>
       </button>
 
-      {/* Add Transaction Modal */}
+      {/* Add Modal */}
       {showAddForm && (
         <AddTransactionModal
+          users={users}
           categories={categories}
           onAdd={handleAddTransaction}
           onClose={() => setShowAddForm(false)}
@@ -140,9 +194,8 @@ export default function App() {
       {/* Tab Bar */}
       <nav className="tab-bar">
         <TabButton icon="📊" label="Обзор" active={activeTab === 'dashboard'} onClick={() => setActiveTab('dashboard')} />
-        <TabButton icon="📈" label="Аналитика" active={activeTab === 'analytics'} onClick={() => setActiveTab('analytics')} />
-        <TabButton icon="❤️" label="Здоровье" active={activeTab === 'health'} onClick={() => setActiveTab('health')} />
         <TabButton icon="📋" label="История" active={activeTab === 'history'} onClick={() => setActiveTab('history')} />
+        <TabButton icon="📈" label="Статистика" active={activeTab === 'stats'} onClick={() => setActiveTab('stats')} />
         <TabButton icon="⚙️" label="Настройки" active={activeTab === 'settings'} onClick={() => setActiveTab('settings')} />
       </nav>
     </div>
@@ -150,17 +203,66 @@ export default function App() {
 }
 
 // ============================================
-// COMPONENTS
+// SETUP SCREEN
 // ============================================
 
-function LoadingScreen() {
+function SetupScreen({ onComplete }: { onComplete: (name1: string, name2: string) => void }) {
+  const [name1, setName1] = useState('');
+  const [name2, setName2] = useState('');
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (name1.trim() && name2.trim()) {
+      onComplete(name1.trim(), name2.trim());
+    }
+  };
+
   return (
-    <div className="loading-screen">
-      <div className="loading-spinner" />
-      <p>Загрузка...</p>
+    <div className="setup-screen">
+      <div className="setup-card">
+        <h1>👋 Добро пожаловать!</h1>
+        <p>Введите имена двух пользователей для учёта финансов</p>
+        
+        <form onSubmit={handleSubmit}>
+          <div className="form-group">
+            <label>Пользователь 1</label>
+            <input
+              type="text"
+              value={name1}
+              onChange={e => setName1(e.target.value)}
+              placeholder="Например: Алексей"
+              className="text-input"
+              autoFocus
+            />
+          </div>
+          
+          <div className="form-group">
+            <label>Пользователь 2</label>
+            <input
+              type="text"
+              value={name2}
+              onChange={e => setName2(e.target.value)}
+              placeholder="Например: Мария"
+              className="text-input"
+            />
+          </div>
+          
+          <button 
+            type="submit" 
+            className="submit-btn"
+            disabled={!name1.trim() || !name2.trim()}
+          >
+            Начать
+          </button>
+        </form>
+      </div>
     </div>
   );
 }
+
+// ============================================
+// TAB BUTTON
+// ============================================
 
 function TabButton({ icon, label, active, onClick }: { 
   icon: string; 
@@ -180,295 +282,79 @@ function TabButton({ icon, label, active, onClick }: {
 // DASHBOARD TAB
 // ============================================
 
-function DashboardTab({ data, health }: { data: any; health: HealthScore }) {
+function DashboardTab({ stats, users, transactions }: { 
+  stats: Stats; 
+  users: AppUser[];
+  transactions: AppTransaction[];
+}) {
+  const recentTx = transactions.slice(0, 5);
+
   return (
     <div className="tab-content">
       {/* Balance Card */}
       <div className="card balance-card">
-        <div className="balance-header">
-          <span className="balance-label">Баланс за месяц</span>
-          <span className={`health-badge grade-${health.grade}`}>
-            {health.emoji} {health.grade}
-          </span>
-        </div>
-        <div className="balance-amount">
-          {formatMoney(data.total_income - data.total_expense)}
-        </div>
+        <div className="balance-label">Баланс за месяц</div>
+        <div className="balance-amount">{formatMoney(stats.balance)}</div>
         <div className="balance-details">
           <div className="balance-item income">
             <span>Доходы</span>
-            <span>+{formatMoney(data.total_income)}</span>
+            <span>+{formatMoney(stats.totalIncome)}</span>
           </div>
           <div className="balance-item expense">
             <span>Расходы</span>
-            <span>-{formatMoney(data.total_expense)}</span>
+            <span>-{formatMoney(stats.totalExpense)}</span>
           </div>
         </div>
       </div>
 
-      {/* Debts Card */}
-      {data.debts.length > 0 && (
-        <div className="card">
-          <h3 className="card-title">💰 Расчёты</h3>
-          {data.debts.map((debt: any, i: number) => (
-            <div key={i} className="debt-item">
-              <span>{debt.from_user_name} → {debt.to_user_name}</span>
-              <span className="debt-amount">{formatMoney(debt.amount)}</span>
+      {/* User Stats */}
+      <div className="card">
+        <h3 className="card-title">👥 По пользователям</h3>
+        {users.map(user => {
+          const userStats = stats.byUser[user.id] || { income: 0, expense: 0, shared: 0 };
+          return (
+            <div key={user.id} className="user-stat-row">
+              <div className="user-info">
+                <span className="user-avatar" style={{ background: user.color }}>
+                  {user.name[0]}
+                </span>
+                <span className="user-name">{user.name}</span>
+              </div>
+              <div className="user-amounts">
+                <span className="expense">-{formatMoney(userStats.expense)}</span>
+                <span className="income">+{formatMoney(userStats.income)}</span>
+              </div>
             </div>
-          ))}
-          <p className="card-subtitle">
-            Общие расходы: {formatMoney(data.shared_expenses.total)}
-          </p>
+          );
+        })}
+      </div>
+
+      {/* Debts */}
+      {stats.debt !== 0 && (
+        <div className="card debt-card">
+          <h3 className="card-title">💰 Расчёт</h3>
+          <div className="debt-info">
+            {stats.debt > 0 ? (
+              <p><strong>{users[1]?.name}</strong> должен(а) <strong>{users[0]?.name}</strong></p>
+            ) : (
+              <p><strong>{users[0]?.name}</strong> должен(а) <strong>{users[1]?.name}</strong></p>
+            )}
+            <div className="debt-amount">{formatMoney(Math.abs(stats.debt))}</div>
+          </div>
         </div>
       )}
-
-      {/* Top Categories */}
-      <div className="card">
-        <h3 className="card-title">📊 Топ категорий</h3>
-        <div className="categories-list">
-          {data.top_categories.slice(0, 5).map((cat: any) => (
-            <div key={cat.category_id} className="category-item">
-              <div className="category-info">
-                <span className="category-icon">{cat.category_icon}</span>
-                <span className="category-name">{cat.category_name}</span>
-              </div>
-              <div className="category-stats">
-                <span className="category-amount">{formatMoney(cat.total)}</span>
-                <span className="category-percent">{cat.percentage}%</span>
-              </div>
-              <div className="category-bar">
-                <div className="category-bar-fill" style={{ width: `${cat.percentage}%` }} />
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
 
       {/* Recent Transactions */}
-      <div className="card">
-        <h3 className="card-title">🕐 Последние транзакции</h3>
-        <div className="transactions-list">
-          {data.recent_transactions.slice(0, 5).map((tx: Transaction) => (
-            <TransactionItem key={tx.id} transaction={tx} />
-          ))}
-        </div>
-      </div>
-
-      {/* Budget Alerts */}
-      {data.budget_alerts.length > 0 && (
-        <div className="card alert-card">
-          <h3 className="card-title">⚠️ Превышение бюджета</h3>
-          {data.budget_alerts.map((alert: any) => (
-            <div key={alert.budget_id} className="alert-item">
-              <span>{alert.budget_name}</span>
-              <span className="alert-percent">{alert.percentage}%</span>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ============================================
-// ANALYTICS TAB
-// ============================================
-
-function AnalyticsTab({ transactions }: { transactions: Transaction[] }) {
-  const analytics = AnalyticsService.getAnalyticsData(transactions);
-  
-  return (
-    <div className="tab-content">
-      {/* Trends */}
-      <div className="card">
-        <h3 className="card-title">📈 Тренды</h3>
-        <div className="trends-grid">
-          <div className="trend-item">
-            <span className="trend-label">Расходы</span>
-            <span className={`trend-direction ${analytics.expense_trend.direction}`}>
-              {analytics.expense_trend.direction === 'up' ? '↑' : 
-               analytics.expense_trend.direction === 'down' ? '↓' : '→'}
-              {Math.abs(analytics.expense_trend.change_percent)}%
-            </span>
-          </div>
-          <div className="trend-item">
-            <span className="trend-label">Доходы</span>
-            <span className={`trend-direction ${analytics.income_trend.direction}`}>
-              {analytics.income_trend.direction === 'up' ? '↑' : 
-               analytics.income_trend.direction === 'down' ? '↓' : '→'}
-              {Math.abs(analytics.income_trend.change_percent)}%
-            </span>
-          </div>
-        </div>
-      </div>
-
-      {/* Monthly Chart (simplified) */}
-      <div className="card">
-        <h3 className="card-title">📊 По месяцам</h3>
-        <div className="chart-container">
-          {analytics.monthly_data.map((m) => (
-            <div key={m.month} className="chart-bar-group">
-              <div className="chart-bars">
-                <div 
-                  className="chart-bar income" 
-                  style={{ height: `${Math.min(100, m.income / 2000)}px` }}
-                  title={`Доход: ${formatMoney(m.income)}`}
-                />
-                <div 
-                  className="chart-bar expense" 
-                  style={{ height: `${Math.min(100, m.expense / 2000)}px` }}
-                  title={`Расход: ${formatMoney(m.expense)}`}
-                />
-              </div>
-              <span className="chart-label">{m.month.slice(5)}</span>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Weekday Pattern */}
-      <div className="card">
-        <h3 className="card-title">📅 По дням недели</h3>
-        <div className="weekday-grid">
-          {analytics.weekday_pattern.map((day) => (
-            <div key={day.day} className="weekday-item">
-              <span className="weekday-name">{day.day_name}</span>
-              <span className="weekday-amount">{formatMoney(day.average_expense)}</span>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Forecast */}
-      {analytics.expense_forecast.length > 0 && (
+      {recentTx.length > 0 && (
         <div className="card">
-          <h3 className="card-title">🔮 Прогноз расходов</h3>
-          {analytics.expense_forecast.map((f) => (
-            <div key={f.date} className="forecast-item">
-              <span>{f.date}</span>
-              <span>{formatMoney(f.predicted_expense)}</span>
-              <span className="forecast-range">
-                {formatMoney(f.confidence_low)} – {formatMoney(f.confidence_high)}
-              </span>
-            </div>
-          ))}
+          <h3 className="card-title">🕐 Последние операции</h3>
+          <div className="transactions-list">
+            {recentTx.map(tx => (
+              <TransactionItem key={tx.id} tx={tx} showUser />
+            ))}
+          </div>
         </div>
       )}
-    </div>
-  );
-}
-
-// ============================================
-// HEALTH TAB
-// ============================================
-
-function HealthTab({ analysis }: { analysis: any }) {
-  const { score, recommendations, metrics } = analysis;
-  
-  return (
-    <div className="tab-content">
-      {/* Main Score */}
-      <div className="card health-score-card">
-        <div className="health-score-circle">
-          <span className="health-score-value">{score.overall}</span>
-          <span className="health-score-max">/100</span>
-        </div>
-        <div className="health-score-grade">
-          <span className="grade-emoji">{score.emoji}</span>
-          <span className="grade-letter">{score.grade}</span>
-        </div>
-        <p className="health-score-summary">{score.summary}</p>
-      </div>
-
-      {/* Score Breakdown */}
-      <div className="card">
-        <h3 className="card-title">📊 Детали</h3>
-        <div className="score-breakdown">
-          <ScoreBar label="Сбережения" value={score.savings} />
-          <ScoreBar label="Бюджеты" value={score.budget} />
-          <ScoreBar label="Кредиты" value={score.debt} />
-          <ScoreBar label="Стабильность" value={score.stability} />
-        </div>
-      </div>
-
-      {/* Key Metrics */}
-      <div className="card">
-        <h3 className="card-title">📈 Метрики</h3>
-        <div className="metrics-grid">
-          <MetricItem 
-            label="Норма сбережений" 
-            value={`${Math.round(metrics.savings_rate * 100)}%`}
-            status={metrics.savings_rate >= 0.1 ? 'good' : 'bad'}
-          />
-          <MetricItem 
-            label="Кредитная нагрузка" 
-            value={`${Math.round(metrics.credit_ratio * 100)}%`}
-            status={metrics.credit_ratio <= 0.2 ? 'good' : 'bad'}
-          />
-          <MetricItem 
-            label="Бюджетов соблюдено" 
-            value={`${metrics.budgets_on_track}/${metrics.budgets_on_track + metrics.budgets_exceeded}`}
-            status={metrics.budget_adherence_rate >= 0.7 ? 'good' : 'bad'}
-          />
-          <MetricItem 
-            label="Ср. расход в день" 
-            value={formatMoney(metrics.avg_daily_expense)}
-            status="neutral"
-          />
-        </div>
-      </div>
-
-      {/* Recommendations */}
-      <div className="card">
-        <h3 className="card-title">💡 Рекомендации</h3>
-        <div className="recommendations-list">
-          {recommendations.map((rec: any, i: number) => (
-            <div key={i} className={`recommendation-item priority-${rec.priority}`}>
-              <div className="recommendation-header">
-                <span className="recommendation-title">{rec.title}</span>
-                <span className={`priority-badge ${rec.priority}`}>{rec.priority}</span>
-              </div>
-              <p className="recommendation-description">{rec.description}</p>
-              {rec.action && (
-                <p className="recommendation-action">💡 {rec.action}</p>
-              )}
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function ScoreBar({ label, value }: { label: string; value: number }) {
-  const getColor = (v: number) => {
-    if (v >= 80) return 'var(--green)';
-    if (v >= 60) return 'var(--yellow)';
-    if (v >= 40) return 'var(--orange)';
-    return 'var(--red)';
-  };
-  
-  return (
-    <div className="score-bar-item">
-      <div className="score-bar-header">
-        <span>{label}</span>
-        <span>{value}</span>
-      </div>
-      <div className="score-bar-track">
-        <div 
-          className="score-bar-fill" 
-          style={{ width: `${value}%`, backgroundColor: getColor(value) }} 
-        />
-      </div>
-    </div>
-  );
-}
-
-function MetricItem({ label, value, status }: { label: string; value: string; status: 'good' | 'bad' | 'neutral' }) {
-  return (
-    <div className={`metric-item ${status}`}>
-      <span className="metric-label">{label}</span>
-      <span className="metric-value">{value}</span>
     </div>
   );
 }
@@ -477,16 +363,27 @@ function MetricItem({ label, value, status }: { label: string; value: string; st
 // HISTORY TAB
 // ============================================
 
-function HistoryTab({ transactions }: { transactions: Transaction[] }) {
-  const [filter, setFilter] = useState<'all' | 'income' | 'expense'>('all');
-  
-  const filtered = transactions.filter(t => 
-    filter === 'all' || t.type === filter
-  );
-  
+function HistoryTab({ 
+  transactions, 
+  users,
+  onDelete 
+}: { 
+  transactions: AppTransaction[];
+  users: AppUser[];
+  onDelete: (id: string) => void;
+}) {
+  const [filter, setFilter] = useState<'all' | 'expense' | 'income'>('all');
+  const [userFilter, setUserFilter] = useState<string>('all');
+
+  const filtered = transactions.filter(t => {
+    if (filter !== 'all' && t.type !== filter) return false;
+    if (userFilter !== 'all' && t.user_id !== userFilter) return false;
+    return true;
+  });
+
   return (
     <div className="tab-content">
-      {/* Filter */}
+      {/* Filters */}
       <div className="filter-bar">
         <button 
           className={`filter-btn ${filter === 'all' ? 'active' : ''}`}
@@ -495,54 +392,162 @@ function HistoryTab({ transactions }: { transactions: Transaction[] }) {
           Все
         </button>
         <button 
-          className={`filter-btn ${filter === 'income' ? 'active' : ''}`}
-          onClick={() => setFilter('income')}
-        >
-          Доходы
-        </button>
-        <button 
           className={`filter-btn ${filter === 'expense' ? 'active' : ''}`}
           onClick={() => setFilter('expense')}
         >
           Расходы
         </button>
+        <button 
+          className={`filter-btn ${filter === 'income' ? 'active' : ''}`}
+          onClick={() => setFilter('income')}
+        >
+          Доходы
+        </button>
       </div>
 
-      {/* Transactions List */}
+      {/* User Filter */}
+      <div className="user-filter">
+        <button
+          className={`user-filter-btn ${userFilter === 'all' ? 'active' : ''}`}
+          onClick={() => setUserFilter('all')}
+        >
+          Все
+        </button>
+        {users.map(user => (
+          <button
+            key={user.id}
+            className={`user-filter-btn ${userFilter === user.id ? 'active' : ''}`}
+            onClick={() => setUserFilter(user.id)}
+            style={{ '--user-color': user.color } as React.CSSProperties}
+          >
+            {user.name}
+          </button>
+        ))}
+      </div>
+
+      {/* Transactions */}
       <div className="card">
-        <div className="transactions-list">
-          {filtered.slice(0, 50).map((tx) => (
-            <TransactionItem key={tx.id} transaction={tx} showDate />
-          ))}
-        </div>
+        {filtered.length === 0 ? (
+          <p className="empty-text">Нет транзакций</p>
+        ) : (
+          <div className="transactions-list">
+            {filtered.map(tx => (
+              <TransactionItem 
+                key={tx.id} 
+                tx={tx} 
+                showUser 
+                showDate
+                onDelete={() => onDelete(tx.id)}
+              />
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
 }
 
-function TransactionItem({ transaction: tx, showDate = false }: { transaction: Transaction; showDate?: boolean }) {
-  const isIncome = tx.type === 'income';
-  
+// ============================================
+// STATS TAB
+// ============================================
+
+function StatsTab({ stats, users, transactions }: {
+  stats: Stats;
+  users: AppUser[];
+  transactions: AppTransaction[];
+}) {
+  // Group by category
+  const byCategory: Record<string, number> = {};
+  transactions
+    .filter(t => t.type === 'expense' && isCurrentMonth(t.date))
+    .forEach(t => {
+      const cat = t.category || 'Другое';
+      byCategory[cat] = (byCategory[cat] || 0) + t.amount;
+    });
+
+  const sortedCategories = Object.entries(byCategory)
+    .sort((a, b) => b[1] - a[1]);
+
+  const totalCategoryExpense = sortedCategories.reduce((sum, [, amount]) => sum + amount, 0);
+
   return (
-    <div className="transaction-item">
-      <div className={`transaction-icon ${isIncome ? 'income' : tx.is_shared ? 'shared' : 'expense'}`}>
-        {tx.category?.icon || (isIncome ? '💰' : '💸')}
+    <div className="tab-content">
+      {/* User Comparison */}
+      <div className="card">
+        <h3 className="card-title">👥 Сравнение расходов</h3>
+        <div className="comparison-chart">
+          {users.map(user => {
+            const userExpense = stats.byUser[user.id]?.expense || 0;
+            const percent = stats.totalExpense > 0 
+              ? Math.round(userExpense / stats.totalExpense * 100) 
+              : 0;
+            return (
+              <div key={user.id} className="comparison-bar">
+                <div className="comparison-header">
+                  <span>{user.name}</span>
+                  <span>{formatMoney(userExpense)}</span>
+                </div>
+                <div className="comparison-track">
+                  <div 
+                    className="comparison-fill" 
+                    style={{ width: `${percent}%`, background: user.color }}
+                  />
+                </div>
+                <span className="comparison-percent">{percent}%</span>
+              </div>
+            );
+          })}
+        </div>
       </div>
-      <div className="transaction-info">
-        <span className="transaction-category">
-          {tx.category?.name || tx.description || 'Без категории'}
-          {tx.is_shared && <span className="badge shared">общий</span>}
-          {tx.is_credit && <span className="badge credit">кредит</span>}
-        </span>
-        <span className="transaction-meta">
-          {showDate && formatDate(tx.date)}
-          {showDate && ' · '}
-          {tx.user_id === 'user-1' ? 'Алексей' : 'Мария'}
-        </span>
+
+      {/* Shared vs Personal */}
+      <div className="card">
+        <h3 className="card-title">📊 Общие vs Личные</h3>
+        <div className="shared-stats">
+          <div className="shared-stat">
+            <span className="shared-label">👥 Общие расходы</span>
+            <span className="shared-value">{formatMoney(stats.sharedExpense)}</span>
+          </div>
+          <div className="shared-stat">
+            <span className="shared-label">👤 Личные расходы</span>
+            <span className="shared-value">{formatMoney(stats.totalExpense - stats.sharedExpense)}</span>
+          </div>
+        </div>
       </div>
-      <span className={`transaction-amount ${isIncome ? 'income' : 'expense'}`}>
-        {isIncome ? '+' : '-'}{formatMoney(tx.amount)}
-      </span>
+
+      {/* By Category */}
+      <div className="card">
+        <h3 className="card-title">📁 По категориям</h3>
+        <div className="categories-list">
+          {sortedCategories.map(([category, amount]) => (
+            <div key={category} className="category-item">
+              <div className="category-info">
+                <span className="category-name">{category}</span>
+              </div>
+              <div className="category-stats">
+                <span className="category-amount">{formatMoney(amount)}</span>
+                <span className="category-percent">
+                  {Math.round(amount / totalCategoryExpense * 100)}%
+                </span>
+              </div>
+              <div className="category-bar">
+                <div 
+                  className="category-bar-fill" 
+                  style={{ width: `${amount / totalCategoryExpense * 100}%` }} 
+                />
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Credit */}
+      {stats.creditExpense > 0 && (
+        <div className="card">
+          <h3 className="card-title">💳 В кредит</h3>
+          <p className="stat-value">{formatMoney(stats.creditExpense)}</p>
+        </div>
+      )}
     </div>
   );
 }
@@ -551,9 +556,72 @@ function TransactionItem({ transaction: tx, showDate = false }: { transaction: T
 // SETTINGS TAB
 // ============================================
 
-function SettingsTab({ theme, setTheme }: { theme: 'light' | 'dark'; setTheme: (t: 'light' | 'dark') => void }) {
+function SettingsTab({ 
+  theme, 
+  setTheme,
+  users,
+  setUsers
+}: { 
+  theme: 'light' | 'dark'; 
+  setTheme: (t: 'light' | 'dark') => void;
+  users: AppUser[];
+  setUsers: (users: AppUser[]) => void;
+}) {
+  const [editingUser, setEditingUser] = useState<string | null>(null);
+  const [newName, setNewName] = useState('');
+
+  const handleSaveName = async (userId: string) => {
+    if (!newName.trim()) return;
+    
+    if (!isDemoMode) {
+      await db.users.update(userId, { name: newName.trim() });
+    }
+    
+    setUsers(users.map(u => u.id === userId ? { ...u, name: newName.trim() } : u));
+    setEditingUser(null);
+    setNewName('');
+  };
+
   return (
     <div className="tab-content">
+      {/* Users */}
+      <div className="card">
+        <h3 className="card-title">👥 Пользователи</h3>
+        {users.map(user => (
+          <div key={user.id} className="setting-item">
+            {editingUser === user.id ? (
+              <div className="edit-user">
+                <input
+                  type="text"
+                  value={newName}
+                  onChange={e => setNewName(e.target.value)}
+                  className="text-input"
+                  autoFocus
+                />
+                <button onClick={() => handleSaveName(user.id)} className="save-btn">✓</button>
+                <button onClick={() => setEditingUser(null)} className="cancel-btn">✕</button>
+              </div>
+            ) : (
+              <>
+                <div className="user-info">
+                  <span className="user-avatar" style={{ background: user.color }}>
+                    {user.name[0]}
+                  </span>
+                  <span>{user.name}</span>
+                </div>
+                <button 
+                  onClick={() => { setEditingUser(user.id); setNewName(user.name); }}
+                  className="edit-btn"
+                >
+                  ✏️
+                </button>
+              </>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {/* Theme */}
       <div className="card">
         <h3 className="card-title">🎨 Оформление</h3>
         <div className="setting-item">
@@ -562,34 +630,20 @@ function SettingsTab({ theme, setTheme }: { theme: 'light' | 'dark'; setTheme: (
             <input 
               type="checkbox" 
               checked={theme === 'dark'} 
-              onChange={(e) => setTheme(e.target.checked ? 'dark' : 'light')}
+              onChange={e => setTheme(e.target.checked ? 'dark' : 'light')}
             />
             <span className="switch-slider" />
           </label>
         </div>
       </div>
 
+      {/* Info */}
       <div className="card">
         <h3 className="card-title">ℹ️ О приложении</h3>
-        <p className="setting-text">Family Finance v2.0</p>
-        <p className="setting-text">ML-аналитика для семейного бюджета</p>
-        {isDemoMode() && (
-          <p className="setting-text demo">
-            🎭 Демо-режим: данные сгенерированы автоматически
-          </p>
+        <p className="setting-text">Family Finance v3.0</p>
+        {isDemoMode && (
+          <p className="setting-text demo">🎭 Демо-режим: данные не сохраняются</p>
         )}
-      </div>
-
-      <div className="card">
-        <h3 className="card-title">🔗 Ссылки</h3>
-        <a 
-          href="https://github.com/yourusername/family-finance" 
-          target="_blank" 
-          rel="noopener"
-          className="setting-link"
-        >
-          GitHub репозиторий
-        </a>
       </div>
     </div>
   );
@@ -600,18 +654,30 @@ function SettingsTab({ theme, setTheme }: { theme: 'light' | 'dark'; setTheme: (
 // ============================================
 
 function AddTransactionModal({ 
+  users,
   categories, 
   onAdd, 
   onClose 
 }: { 
-  categories: Category[];
-  onAdd: (tx: Partial<Transaction>) => void;
+  users: AppUser[];
+  categories: AppCategory[];
+  onAdd: (data: {
+    user_id: string;
+    type: 'income' | 'expense';
+    amount: number;
+    category: string;
+    description?: string;
+    date: string;
+    is_shared: boolean;
+    is_credit: boolean;
+  }) => void;
   onClose: () => void;
 }) {
+  const [userId, setUserId] = useState(users[0]?.id || '');
   const [type, setType] = useState<'expense' | 'income'>('expense');
   const [amount, setAmount] = useState('');
+  const [category, setCategory] = useState('');
   const [description, setDescription] = useState('');
-  const [categoryId, setCategoryId] = useState('');
   const [isShared, setIsShared] = useState(false);
   const [isCredit, setIsCredit] = useState(false);
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
@@ -627,13 +693,14 @@ function AddTransactionModal({
     }
 
     onAdd({
+      user_id: userId,
       type,
       amount: parseFloat(amount),
+      category: category || (filteredCategories[0]?.name || 'Другое'),
       description: description || undefined,
-      category_id: categoryId || undefined,
+      date,
       is_shared: isShared,
-      is_credit: isCredit,
-      date: new Date(date).toISOString()
+      is_credit: isCredit
     });
   };
 
@@ -641,11 +708,32 @@ function AddTransactionModal({
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal" onClick={e => e.stopPropagation()}>
         <div className="modal-header">
-          <h2>Новая транзакция</h2>
+          <h2>Новая операция</h2>
           <button className="modal-close" onClick={onClose}>✕</button>
         </div>
 
         <form onSubmit={handleSubmit} className="add-form">
+          {/* User Selection */}
+          <div className="form-group">
+            <label>Кто</label>
+            <div className="user-select">
+              {users.map(user => (
+                <button
+                  key={user.id}
+                  type="button"
+                  className={`user-select-btn ${userId === user.id ? 'active' : ''}`}
+                  onClick={() => setUserId(user.id)}
+                  style={{ '--user-color': user.color } as React.CSSProperties}
+                >
+                  <span className="user-avatar" style={{ background: user.color }}>
+                    {user.name[0]}
+                  </span>
+                  {user.name}
+                </button>
+              ))}
+            </div>
+          </div>
+
           {/* Type Toggle */}
           <div className="type-toggle">
             <button
@@ -673,7 +761,6 @@ function AddTransactionModal({
               onChange={e => setAmount(e.target.value)}
               placeholder="0"
               className="amount-input"
-              autoFocus
             />
           </div>
 
@@ -681,13 +768,13 @@ function AddTransactionModal({
           <div className="form-group">
             <label>Категория</label>
             <select
-              value={categoryId}
-              onChange={e => setCategoryId(e.target.value)}
+              value={category}
+              onChange={e => setCategory(e.target.value)}
               className="select-input"
             >
-              <option value="">Без категории</option>
+              <option value="">Выберите...</option>
               {filteredCategories.map(cat => (
-                <option key={cat.id} value={cat.id}>
+                <option key={cat.id} value={cat.name}>
                   {cat.icon} {cat.name}
                 </option>
               ))}
@@ -696,12 +783,12 @@ function AddTransactionModal({
 
           {/* Description */}
           <div className="form-group">
-            <label>Описание</label>
+            <label>Комментарий</label>
             <input
               type="text"
               value={description}
               onChange={e => setDescription(e.target.value)}
-              placeholder="Комментарий..."
+              placeholder="Описание..."
               className="text-input"
             />
           </div>
@@ -726,7 +813,7 @@ function AddTransactionModal({
                   checked={isShared}
                   onChange={e => setIsShared(e.target.checked)}
                 />
-                <span>👥 Общий расход</span>
+                <span>👥 Общий</span>
               </label>
               <label className="checkbox-label">
                 <input
@@ -734,7 +821,7 @@ function AddTransactionModal({
                   checked={isCredit}
                   onChange={e => setIsCredit(e.target.checked)}
                 />
-                <span>💳 В кредит</span>
+                <span>💳 Кредит</span>
               </label>
             </div>
           )}
@@ -750,8 +837,119 @@ function AddTransactionModal({
 }
 
 // ============================================
+// TRANSACTION ITEM
+// ============================================
+
+function TransactionItem({ 
+  tx, 
+  showUser = false,
+  showDate = false,
+  onDelete
+}: { 
+  tx: AppTransaction;
+  showUser?: boolean;
+  showDate?: boolean;
+  onDelete?: () => void;
+}) {
+  const isIncome = tx.type === 'income';
+  
+  return (
+    <div className="transaction-item">
+      <div className={`transaction-icon ${isIncome ? 'income' : tx.is_shared ? 'shared' : 'expense'}`}>
+        {tx.category?.[0] || (isIncome ? '💰' : '💸')}
+      </div>
+      <div className="transaction-info">
+        <span className="transaction-category">
+          {tx.category || 'Без категории'}
+          {tx.is_shared && <span className="badge shared">общий</span>}
+          {tx.is_credit && <span className="badge credit">кредит</span>}
+        </span>
+        <span className="transaction-meta">
+          {showDate && formatDate(tx.date)}
+          {showDate && showUser && ' · '}
+          {showUser && tx.user?.name}
+          {tx.description && ` · ${tx.description}`}
+        </span>
+      </div>
+      <span className={`transaction-amount ${isIncome ? 'income' : 'expense'}`}>
+        {isIncome ? '+' : '-'}{formatMoney(tx.amount)}
+      </span>
+      {onDelete && (
+        <button className="delete-btn" onClick={onDelete}>🗑️</button>
+      )}
+    </div>
+  );
+}
+
+// ============================================
 // HELPERS
 // ============================================
+
+interface UserStats {
+  income: number;
+  expense: number;
+  shared: number;
+}
+
+interface Stats {
+  totalIncome: number;
+  totalExpense: number;
+  balance: number;
+  sharedExpense: number;
+  creditExpense: number;
+  debt: number;
+  byUser: Record<string, UserStats>;
+}
+
+function calculateStats(transactions: AppTransaction[], users: AppUser[]): Stats {
+  const currentMonth = transactions.filter(t => isCurrentMonth(t.date));
+  
+  const byUser: Record<string, UserStats> = {};
+  users.forEach(u => {
+    byUser[u.id] = { income: 0, expense: 0, shared: 0 };
+  });
+
+  let totalIncome = 0;
+  let totalExpense = 0;
+  let sharedExpense = 0;
+  let creditExpense = 0;
+
+  currentMonth.forEach(t => {
+    if (t.type === 'income') {
+      totalIncome += t.amount;
+      if (byUser[t.user_id]) byUser[t.user_id].income += t.amount;
+    } else {
+      totalExpense += t.amount;
+      if (byUser[t.user_id]) byUser[t.user_id].expense += t.amount;
+      if (t.is_shared) {
+        sharedExpense += t.amount;
+        if (byUser[t.user_id]) byUser[t.user_id].shared += t.amount;
+      }
+      if (t.is_credit) creditExpense += t.amount;
+    }
+  });
+
+  // Calculate debt: positive = user[1] owes user[0], negative = user[0] owes user[1]
+  const fairShare = sharedExpense / 2;
+  const user0Shared = byUser[users[0]?.id]?.shared || 0;
+  const debt = user0Shared - fairShare;
+
+  return {
+    totalIncome,
+    totalExpense,
+    balance: totalIncome - totalExpense,
+    sharedExpense,
+    creditExpense,
+    debt,
+    byUser
+  };
+}
+
+function isCurrentMonth(dateStr: string): boolean {
+  const date = new Date(dateStr);
+  const now = new Date();
+  return date.getMonth() === now.getMonth() && date.getFullYear() === now.getFullYear();
+}
 
 function formatMoney(amount: number): string {
   return new Intl.NumberFormat('ru-RU', {
@@ -762,7 +960,21 @@ function formatMoney(amount: number): string {
   }).format(amount);
 }
 
-function formatDate(dateString: string): string {
-  const date = new Date(dateString);
-  return date.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' });
+function formatDate(dateStr: string): string {
+  return new Date(dateStr).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' });
 }
+
+// Default categories for demo mode
+const defaultCategories: AppCategory[] = [
+  { id: '1', name: 'Продукты', type: 'expense', icon: '🛒', color: '#4CAF50' },
+  { id: '2', name: 'Транспорт', type: 'expense', icon: '🚗', color: '#2196F3' },
+  { id: '3', name: 'Рестораны', type: 'expense', icon: '🍽️', color: '#FF9800' },
+  { id: '4', name: 'Развлечения', type: 'expense', icon: '🎬', color: '#9C27B0' },
+  { id: '5', name: 'Коммуналка', type: 'expense', icon: '🏠', color: '#607D8B' },
+  { id: '6', name: 'Здоровье', type: 'expense', icon: '💊', color: '#E91E63' },
+  { id: '7', name: 'Одежда', type: 'expense', icon: '👕', color: '#00BCD4' },
+  { id: '8', name: 'Другое', type: 'expense', icon: '📦', color: '#9E9E9E' },
+  { id: '9', name: 'Зарплата', type: 'income', icon: '💰', color: '#4CAF50' },
+  { id: '10', name: 'Фриланс', type: 'income', icon: '💻', color: '#2196F3' },
+  { id: '11', name: 'Другое', type: 'income', icon: '📦', color: '#9E9E9E' },
+];
