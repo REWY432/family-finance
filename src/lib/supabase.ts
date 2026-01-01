@@ -1,32 +1,38 @@
 /**
  * Supabase Client
+ * Handles both real Supabase connections and demo mode
  */
 
-import { createClient } from '@supabase/supabase-js';
-import type { Database } from '../types/database';
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
+const isDemoMode = import.meta.env.VITE_DEMO_MODE === 'true' || !supabaseUrl;
 
-if (!supabaseUrl || !supabaseAnonKey) {
-  throw new Error('Missing Supabase environment variables');
+// Create client only if we have credentials
+let supabase: SupabaseClient | null = null;
+
+if (supabaseUrl && supabaseAnonKey) {
+  supabase = createClient(supabaseUrl, supabaseAnonKey, {
+    auth: {
+      autoRefreshToken: true,
+      persistSession: true,
+      detectSessionInUrl: true
+    }
+  });
 }
 
-export const supabase = createClient<Database>(supabaseUrl, supabaseAnonKey, {
-  auth: {
-    autoRefreshToken: true,
-    persistSession: true,
-    detectSessionInUrl: true
-  }
-});
+export { supabase, isDemoMode };
 
-// Auth helpers
+// Auth helpers (no-op in demo mode)
 export const auth = {
   signIn: async (email: string, password: string) => {
+    if (!supabase) return { data: null, error: new Error('Demo mode') };
     return supabase.auth.signInWithPassword({ email, password });
   },
   
   signUp: async (email: string, password: string, displayName: string) => {
+    if (!supabase) return { data: null, error: new Error('Demo mode') };
     const { data, error } = await supabase.auth.signUp({ 
       email, 
       password,
@@ -38,6 +44,7 @@ export const auth = {
   },
   
   signInWithGoogle: async () => {
+    if (!supabase) return { data: null, error: new Error('Demo mode') };
     return supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
@@ -47,54 +54,62 @@ export const auth = {
   },
   
   signOut: async () => {
+    if (!supabase) return { error: null };
     return supabase.auth.signOut();
   },
   
   getSession: async () => {
+    if (!supabase) return { data: { session: null }, error: null };
     return supabase.auth.getSession();
   },
   
   getUser: async () => {
+    if (!supabase) return null;
     const { data: { user } } = await supabase.auth.getUser();
     return user;
   },
   
-  onAuthStateChange: (callback: (event: string, session: any) => void) => {
+  onAuthStateChange: (callback: (event: string, session: unknown) => void) => {
+    if (!supabase) return { data: { subscription: { unsubscribe: () => {} } } };
     return supabase.auth.onAuthStateChange(callback);
   }
 };
 
-// Database helpers
+// Database helpers (return empty results in demo mode)
 export const db = {
   // Transactions
   transactions: {
-    list: async (familyId: string, filters?: Record<string, any>) => {
+    list: async (familyId: string, filters?: Record<string, unknown>) => {
+      if (!supabase) return { data: [], error: null };
       let query = supabase
         .from('transactions')
         .select('*, category:categories(*), account:accounts(*)')
         .eq('family_id', familyId)
         .order('date', { ascending: false });
       
-      if (filters?.type) query = query.eq('type', filters.type);
-      if (filters?.category_id) query = query.eq('category_id', filters.category_id);
-      if (filters?.user_id) query = query.eq('user_id', filters.user_id);
-      if (filters?.is_shared !== undefined) query = query.eq('is_shared', filters.is_shared);
-      if (filters?.date_from) query = query.gte('date', filters.date_from);
-      if (filters?.date_to) query = query.lte('date', filters.date_to);
-      if (filters?.limit) query = query.limit(filters.limit);
+      if (filters?.type) query = query.eq('type', filters.type as string);
+      if (filters?.category_id) query = query.eq('category_id', filters.category_id as string);
+      if (filters?.user_id) query = query.eq('user_id', filters.user_id as string);
+      if (filters?.is_shared !== undefined) query = query.eq('is_shared', filters.is_shared as boolean);
+      if (filters?.date_from) query = query.gte('date', filters.date_from as string);
+      if (filters?.date_to) query = query.lte('date', filters.date_to as string);
+      if (filters?.limit) query = query.limit(filters.limit as number);
       
       return query;
     },
     
-    create: async (data: any) => {
+    create: async (data: Record<string, unknown>) => {
+      if (!supabase) return { data: null, error: new Error('Demo mode') };
       return supabase.from('transactions').insert(data).select().single();
     },
     
-    update: async (id: string, data: any) => {
+    update: async (id: string, data: Record<string, unknown>) => {
+      if (!supabase) return { data: null, error: new Error('Demo mode') };
       return supabase.from('transactions').update(data).eq('id', id).select().single();
     },
     
     delete: async (id: string) => {
+      if (!supabase) return { data: null, error: new Error('Demo mode') };
       return supabase.from('transactions').delete().eq('id', id);
     }
   },
@@ -102,6 +117,7 @@ export const db = {
   // Categories
   categories: {
     list: async (familyId: string) => {
+      if (!supabase) return { data: [], error: null };
       return supabase
         .from('categories')
         .select('*')
@@ -109,15 +125,18 @@ export const db = {
         .order('name');
     },
     
-    create: async (data: any) => {
+    create: async (data: Record<string, unknown>) => {
+      if (!supabase) return { data: null, error: new Error('Demo mode') };
       return supabase.from('categories').insert(data).select().single();
     },
     
-    update: async (id: string, data: any) => {
+    update: async (id: string, data: Record<string, unknown>) => {
+      if (!supabase) return { data: null, error: new Error('Demo mode') };
       return supabase.from('categories').update(data).eq('id', id).select().single();
     },
     
     delete: async (id: string) => {
+      if (!supabase) return { data: null, error: new Error('Demo mode') };
       return supabase.from('categories').delete().eq('id', id);
     }
   },
@@ -125,6 +144,7 @@ export const db = {
   // Budgets
   budgets: {
     list: async (familyId: string) => {
+      if (!supabase) return { data: [], error: null };
       return supabase
         .from('budgets')
         .select('*, category:categories(*)')
@@ -133,15 +153,18 @@ export const db = {
         .order('name');
     },
     
-    create: async (data: any) => {
+    create: async (data: Record<string, unknown>) => {
+      if (!supabase) return { data: null, error: new Error('Demo mode') };
       return supabase.from('budgets').insert(data).select().single();
     },
     
-    update: async (id: string, data: any) => {
+    update: async (id: string, data: Record<string, unknown>) => {
+      if (!supabase) return { data: null, error: new Error('Demo mode') };
       return supabase.from('budgets').update(data).eq('id', id).select().single();
     },
     
     delete: async (id: string) => {
+      if (!supabase) return { data: null, error: new Error('Demo mode') };
       return supabase.from('budgets').delete().eq('id', id);
     }
   },
@@ -149,6 +172,7 @@ export const db = {
   // Goals
   goals: {
     list: async (familyId: string) => {
+      if (!supabase) return { data: [], error: null };
       return supabase
         .from('goals')
         .select('*')
@@ -156,19 +180,23 @@ export const db = {
         .order('created_at', { ascending: false });
     },
     
-    create: async (data: any) => {
+    create: async (data: Record<string, unknown>) => {
+      if (!supabase) return { data: null, error: new Error('Demo mode') };
       return supabase.from('goals').insert(data).select().single();
     },
     
-    update: async (id: string, data: any) => {
+    update: async (id: string, data: Record<string, unknown>) => {
+      if (!supabase) return { data: null, error: new Error('Demo mode') };
       return supabase.from('goals').update(data).eq('id', id).select().single();
     },
     
     delete: async (id: string) => {
+      if (!supabase) return { data: null, error: new Error('Demo mode') };
       return supabase.from('goals').delete().eq('id', id);
     },
     
     addContribution: async (goalId: string, userId: string, amount: number, note?: string) => {
+      if (!supabase) return { data: null, error: new Error('Demo mode') };
       return supabase.from('goal_contributions').insert({
         goal_id: goalId,
         user_id: userId,
@@ -181,6 +209,7 @@ export const db = {
   // Anomalies
   anomalies: {
     list: async (familyId: string, dismissed = false) => {
+      if (!supabase) return { data: [], error: null };
       return supabase
         .from('anomalies')
         .select('*, transaction:transactions(*)')
@@ -190,6 +219,7 @@ export const db = {
     },
     
     dismiss: async (id: string, userId: string) => {
+      if (!supabase) return { data: null, error: new Error('Demo mode') };
       return supabase.from('anomalies').update({
         is_dismissed: true,
         dismissed_by: userId,
@@ -201,6 +231,7 @@ export const db = {
   // Health Snapshots
   health: {
     getLatest: async (familyId: string) => {
+      if (!supabase) return { data: null, error: null };
       return supabase
         .from('health_snapshots')
         .select('*')
@@ -211,6 +242,7 @@ export const db = {
     },
     
     getHistory: async (familyId: string, days = 30) => {
+      if (!supabase) return { data: [], error: null };
       const fromDate = new Date();
       fromDate.setDate(fromDate.getDate() - days);
       
@@ -222,7 +254,8 @@ export const db = {
         .order('snapshot_date', { ascending: true });
     },
     
-    create: async (data: any) => {
+    create: async (data: Record<string, unknown>) => {
+      if (!supabase) return { data: null, error: new Error('Demo mode') };
       return supabase.from('health_snapshots').upsert(data, {
         onConflict: 'family_id,snapshot_date'
       }).select().single();

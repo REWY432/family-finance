@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
 import { isDemoMode, DemoData, demoFamilyMembers } from './services/demo-data';
 import { AnalyticsService } from './services/analytics';
-import { HealthService } from './services/health';
-import type { Transaction, Budget, Goal, Category, HealthScore } from './types';
+import { HealthService, HealthScore } from './services/health';
+import type { Transaction, Budget, Goal, Category } from './types';
 
 // ============================================
 // TYPES
