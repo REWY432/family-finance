@@ -9,8 +9,8 @@ import {
   extractLearningPatterns,
   suggestRules,
   AutoCategoryService 
-} from '../src/services/autocategory';
-import type { Transaction, Category, CategoryRule } from '../src/types';
+} from '../../src/services/autocategory';
+import type { Transaction, Category, CategoryRule } from '../../src/types';
 
 // ============================================
 // TEST DATA

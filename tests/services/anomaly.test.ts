@@ -7,8 +7,8 @@ import {
   detectTransactionAnomalies, 
   analyzeSpendingPatterns,
   AnomalyService 
-} from '../src/services/anomaly';
-import type { Transaction, Category } from '../src/types';
+} from '../../src/services/anomaly';
+import type { Transaction, Category } from '../../src/types';
 
 // ============================================
 // TEST DATA FACTORIES
