@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { db, isDemoMode, AppUser, AppTransaction, AppCategory } from './lib/supabase';
+import { db, isDemoMode, AppUser, AppTransaction, AppCategory, AppBudget, AppGoal, AppRecurringPayment } from './lib/supabase';
 import { AutoCategoryService } from './services/autocategory';
 import { HealthService } from './services/health';
 import { ML } from './services/ml';
@@ -7,12 +7,29 @@ import { AnomalyService } from './services/anomaly';
 import { appCategoryToCategory, appTransactionToTransaction, findCategoryIdByName } from './utils/typeAdapters';
 import { ToastContainer, showToast } from './components/Toast';
 import { DashboardSkeleton } from './components/Skeleton';
+import { formatMoney, formatDate } from './utils/formatters';
+import { BudgetCard } from './components/budgets/BudgetCard';
+import { BudgetForm } from './components/budgets/BudgetForm';
+import { GoalCard } from './components/goals/GoalCard';
+import { GoalForm } from './components/goals/GoalForm';
+import { ContributionForm } from './components/goals/ContributionForm';
+import { RecurringPaymentCard } from './components/recurring/RecurringPaymentCard';
+import { RecurringPaymentForm } from './components/recurring/RecurringPaymentForm';
+import { ExpenseLineChart } from './components/charts/ExpenseLineChart';
+import { IncomeExpenseBarChart } from './components/charts/IncomeExpenseBarChart';
+import { CategoryPieChart } from './components/charts/CategoryPieChart';
+import { Modal } from './components/Modal';
+import { BudgetsTab } from './components/tabs/BudgetsTab';
+import { GoalsTab } from './components/tabs/GoalsTab';
+import { RecurringTab } from './components/tabs/RecurringTab';
+import { AnalyticsTab } from './components/tabs/AnalyticsTab';
+import './lib/chartConfig';
 
 // ============================================
 // TYPES
 // ============================================
 
-type Tab = 'dashboard' | 'history' | 'stats' | 'settings';
+type Tab = 'dashboard' | 'history' | 'stats' | 'budgets' | 'goals' | 'recurring' | 'analytics' | 'settings';
 
 // ============================================
 // MAIN APP
@@ -23,8 +40,19 @@ export default function App() {
   const [users, setUsers] = useState<AppUser[]>([]);
   const [transactions, setTransactions] = useState<AppTransaction[]>([]);
   const [categories, setCategories] = useState<AppCategory[]>([]);
+  const [budgets, setBudgets] = useState<AppBudget[]>([]);
+  const [goals, setGoals] = useState<AppGoal[]>([]);
+  const [recurringPayments, setRecurringPayments] = useState<AppRecurringPayment[]>([]);
   const [activeTab, setActiveTab] = useState<Tab>('dashboard');
   const [showAddForm, setShowAddForm] = useState(false);
+  const [showBudgetForm, setShowBudgetForm] = useState(false);
+  const [showGoalForm, setShowGoalForm] = useState(false);
+  const [showContributionForm, setShowContributionForm] = useState(false);
+  const [showRecurringForm, setShowRecurringForm] = useState(false);
+  const [editingBudget, setEditingBudget] = useState<AppBudget | null>(null);
+  const [editingGoal, setEditingGoal] = useState<AppGoal | null>(null);
+  const [editingRecurring, setEditingRecurring] = useState<AppRecurringPayment | null>(null);
+  const [contributionGoalId, setContributionGoalId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [theme, setTheme] = useState<'light' | 'dark'>('dark');
 
@@ -55,15 +83,45 @@ export default function App() {
     }
 
     // Load from Supabase
-    const [loadedUsers, loadedCategories, loadedTransactions] = await Promise.all([
+    const [loadedUsers, loadedCategories, loadedTransactions, loadedBudgets, loadedGoals, loadedRecurring] = await Promise.all([
       db.users.list(),
       db.categories.list(),
-      db.transactions.list()
+      db.transactions.list(),
+      db.budgets.list(),
+      db.goals.list(),
+      db.recurring.list()
     ]);
 
     setUsers(loadedUsers);
     setCategories(loadedCategories.length > 0 ? loadedCategories : defaultCategories);
     setTransactions(loadedTransactions);
+    
+    // Calculate budget stats
+    const budgetsWithStats = loadedBudgets.map(budget => {
+      const startDate = new Date(budget.start_date);
+      const endDate = budget.end_date ? new Date(budget.end_date) : new Date();
+      const filtered = loadedTransactions.filter(t => {
+        const txDate = new Date(t.date);
+        return t.type === 'expense' && 
+               (!budget.category || t.category === budget.category) &&
+               txDate >= startDate && txDate <= endDate;
+      });
+      const spent = filtered.reduce((sum, t) => sum + t.amount, 0);
+      const remaining = budget.amount - spent;
+      const percentage = (spent / budget.amount) * 100;
+      return { ...budget, spent, remaining, percentage };
+    });
+    setBudgets(budgetsWithStats);
+    
+    // Calculate goal stats
+    const goalsWithStats = loadedGoals.map(goal => {
+      const percentage = (goal.current_amount / goal.target_amount) * 100;
+      const daysRemaining = goal.deadline ? Math.ceil((new Date(goal.deadline).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24)) : undefined;
+      return { ...goal, percentage, days_remaining: daysRemaining };
+    });
+    setGoals(goalsWithStats);
+    
+    setRecurringPayments(loadedRecurring);
     setIsSetup(loadedUsers.length >= 2);
     setLoading(false);
   };
@@ -114,6 +172,23 @@ export default function App() {
 
       const newTx = await db.transactions.create(data);
       if (newTx) {
+        // Reload budgets to update stats
+        const updatedBudgets = await db.budgets.list();
+        const budgetsWithStats = updatedBudgets.map(budget => {
+          const startDate = new Date(budget.start_date);
+          const endDate = budget.end_date ? new Date(budget.end_date) : new Date();
+          const filtered = [...transactions, newTx].filter(t => {
+            const txDate = new Date(t.date);
+            return t.type === 'expense' && 
+                   (!budget.category || t.category === budget.category) &&
+                   txDate >= startDate && txDate <= endDate;
+          });
+          const spent = filtered.reduce((sum, t) => sum + t.amount, 0);
+          const remaining = budget.amount - spent;
+          const percentage = (spent / budget.amount) * 100;
+          return { ...budget, spent, remaining, percentage };
+        });
+        setBudgets(budgetsWithStats);
         setTransactions(prev => [newTx, ...prev]);
         showToast('Транзакция добавлена', 'success');
       } else {
@@ -137,9 +212,209 @@ export default function App() {
       await db.transactions.delete(id);
       setTransactions(prev => prev.filter(t => t.id !== id));
       showToast('Транзакция удалена', 'info');
+      // Reload budgets
+      await loadData();
     } catch (error) {
       showToast('Ошибка при удалении транзакции', 'error');
       console.error('Delete transaction error:', error);
+    }
+  };
+
+  // Budget handlers
+  const handleSaveBudget = async (budgetData: Omit<AppBudget, 'id' | 'created_at' | 'updated_at' | 'spent' | 'remaining' | 'percentage'>) => {
+    try {
+      if (isDemoMode) {
+        const newBudget: AppBudget = {
+          id: Date.now().toString(),
+          ...budgetData,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+          spent: 0,
+          remaining: budgetData.amount,
+          percentage: 0
+        };
+        setBudgets(prev => editingBudget ? prev.map(b => b.id === editingBudget.id ? newBudget : b) : [...prev, newBudget]);
+        showToast(editingBudget ? 'Бюджет обновлён' : 'Бюджет создан', 'success');
+        setShowBudgetForm(false);
+        setEditingBudget(null);
+        return;
+      }
+
+      const saved = editingBudget 
+        ? await db.budgets.update(editingBudget.id, budgetData)
+        : await db.budgets.create(budgetData);
+      
+      if (saved) {
+        showToast(editingBudget ? 'Бюджет обновлён' : 'Бюджет создан', 'success');
+        await loadData();
+        setShowBudgetForm(false);
+        setEditingBudget(null);
+      }
+    } catch (error) {
+      showToast('Ошибка при сохранении бюджета', 'error');
+      console.error('Budget save error:', error);
+    }
+  };
+
+  const handleDeleteBudget = async (id: string) => {
+    try {
+      if (isDemoMode) {
+        setBudgets(prev => prev.filter(b => b.id !== id));
+        showToast('Бюджет удалён', 'info');
+        return;
+      }
+      await db.budgets.delete(id);
+      setBudgets(prev => prev.filter(b => b.id !== id));
+      showToast('Бюджет удалён', 'info');
+    } catch (error) {
+      showToast('Ошибка при удалении бюджета', 'error');
+      console.error('Budget delete error:', error);
+    }
+  };
+
+  // Goal handlers
+  const handleSaveGoal = async (goalData: Omit<AppGoal, 'id' | 'created_at' | 'updated_at' | 'percentage' | 'days_remaining'>) => {
+    try {
+      if (isDemoMode) {
+        const newGoal: AppGoal = {
+          id: Date.now().toString(),
+          ...goalData,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+          percentage: (goalData.current_amount / goalData.target_amount) * 100,
+          days_remaining: goalData.deadline ? Math.ceil((new Date(goalData.deadline).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24)) : null
+        };
+        setGoals(prev => editingGoal ? prev.map(g => g.id === editingGoal.id ? newGoal : g) : [...prev, newGoal]);
+        showToast(editingGoal ? 'Цель обновлена' : 'Цель создана', 'success');
+        setShowGoalForm(false);
+        setEditingGoal(null);
+        return;
+      }
+
+      const saved = editingGoal
+        ? await db.goals.update(editingGoal.id, goalData)
+        : await db.goals.create(goalData);
+      
+      if (saved) {
+        showToast(editingGoal ? 'Цель обновлена' : 'Цель создана', 'success');
+        await loadData();
+        setShowGoalForm(false);
+        setEditingGoal(null);
+      }
+    } catch (error) {
+      showToast('Ошибка при сохранении цели', 'error');
+      console.error('Goal save error:', error);
+    }
+  };
+
+  const handleDeleteGoal = async (id: string) => {
+    try {
+      if (isDemoMode) {
+        setGoals(prev => prev.filter(g => g.id !== id));
+        showToast('Цель удалена', 'info');
+        return;
+      }
+      await db.goals.delete(id);
+      setGoals(prev => prev.filter(g => g.id !== id));
+      showToast('Цель удалена', 'info');
+    } catch (error) {
+      showToast('Ошибка при удалении цели', 'error');
+      console.error('Goal delete error:', error);
+    }
+  };
+
+  const handleAddContribution = async (goalId: string, userId: string, amount: number, note?: string) => {
+    try {
+      if (isDemoMode) {
+        const goal = goals.find(g => g.id === goalId);
+        if (goal) {
+          const updatedGoal = {
+            ...goal,
+            current_amount: goal.current_amount + amount,
+            is_completed: goal.current_amount + amount >= goal.target_amount,
+            percentage: ((goal.current_amount + amount) / goal.target_amount) * 100
+          };
+          setGoals(prev => prev.map(g => g.id === goalId ? updatedGoal : g));
+          showToast('Взнос добавлен', 'success');
+        }
+        setShowContributionForm(false);
+        setContributionGoalId(null);
+        return;
+      }
+
+      const contribution = await db.goals.addContribution(goalId, userId, amount, note);
+      if (contribution) {
+        showToast('Взнос добавлен', 'success');
+        await loadData();
+        setShowContributionForm(false);
+        setContributionGoalId(null);
+      }
+    } catch (error) {
+      showToast('Ошибка при добавлении взноса', 'error');
+      console.error('Contribution error:', error);
+    }
+  };
+
+  // Recurring payment handlers
+  const handleSaveRecurring = async (paymentData: Omit<AppRecurringPayment, 'id' | 'created_at' | 'updated_at'>) => {
+    try {
+      if (isDemoMode) {
+        const newPayment: AppRecurringPayment = {
+          id: Date.now().toString(),
+          ...paymentData,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        };
+        setRecurringPayments(prev => editingRecurring ? prev.map(p => p.id === editingRecurring.id ? newPayment : p) : [...prev, newPayment]);
+        showToast(editingRecurring ? 'Платёж обновлён' : 'Платёж создан', 'success');
+        setShowRecurringForm(false);
+        setEditingRecurring(null);
+        return;
+      }
+
+      const saved = editingRecurring
+        ? await db.recurring.update(editingRecurring.id, paymentData)
+        : await db.recurring.create(paymentData);
+      
+      if (saved) {
+        showToast(editingRecurring ? 'Платёж обновлён' : 'Платёж создан', 'success');
+        await loadData();
+        setShowRecurringForm(false);
+        setEditingRecurring(null);
+      }
+    } catch (error) {
+      showToast('Ошибка при сохранении платежа', 'error');
+      console.error('Recurring payment save error:', error);
+    }
+  };
+
+  const handleDeleteRecurring = async (id: string) => {
+    try {
+      if (isDemoMode) {
+        setRecurringPayments(prev => prev.filter(p => p.id !== id));
+        showToast('Платёж удалён', 'info');
+        return;
+      }
+      await db.recurring.delete(id);
+      setRecurringPayments(prev => prev.filter(p => p.id !== id));
+      showToast('Платёж удалён', 'info');
+    } catch (error) {
+      showToast('Ошибка при удалении платежа', 'error');
+      console.error('Recurring payment delete error:', error);
+    }
+  };
+
+  const handleToggleRecurring = async (id: string, isActive: boolean) => {
+    try {
+      if (isDemoMode) {
+        setRecurringPayments(prev => prev.map(p => p.id === id ? { ...p, is_active: isActive } : p));
+        return;
+      }
+      await db.recurring.update(id, { is_active: isActive });
+      setRecurringPayments(prev => prev.map(p => p.id === id ? { ...p, is_active: isActive } : p));
+    } catch (error) {
+      showToast('Ошибка при обновлении платежа', 'error');
+      console.error('Recurring payment toggle error:', error);
     }
   };
 
@@ -173,6 +448,10 @@ export default function App() {
           {activeTab === 'dashboard' && 'Обзор'}
           {activeTab === 'history' && 'История'}
           {activeTab === 'stats' && 'Статистика'}
+          {activeTab === 'budgets' && 'Бюджеты'}
+          {activeTab === 'goals' && 'Цели'}
+          {activeTab === 'recurring' && 'Регулярные платежи'}
+          {activeTab === 'analytics' && 'Аналитика'}
           {activeTab === 'settings' && 'Настройки'}
         </h1>
         {isDemoMode && <span className="demo-badge">DEMO</span>}
@@ -193,6 +472,43 @@ export default function App() {
         {activeTab === 'stats' && (
           <StatsTab stats={stats} users={users} transactions={transactions} />
         )}
+        {activeTab === 'budgets' && (
+          <BudgetsTab
+            budgets={budgets}
+            categories={categories}
+            onAdd={() => { setEditingBudget(null); setShowBudgetForm(true); }}
+            onEdit={(b) => { setEditingBudget(b); setShowBudgetForm(true); }}
+            onDelete={handleDeleteBudget}
+          />
+        )}
+        {activeTab === 'goals' && (
+          <GoalsTab
+            goals={goals}
+            users={users}
+            onAdd={() => { setEditingGoal(null); setShowGoalForm(true); }}
+            onEdit={(g) => { setEditingGoal(g); setShowGoalForm(true); }}
+            onDelete={handleDeleteGoal}
+            onAddContribution={(goalId) => { setContributionGoalId(goalId); setShowContributionForm(true); }}
+          />
+        )}
+        {activeTab === 'recurring' && (
+          <RecurringTab
+            payments={recurringPayments}
+            users={users}
+            categories={categories}
+            onAdd={() => { setEditingRecurring(null); setShowRecurringForm(true); }}
+            onEdit={(p) => { setEditingRecurring(p); setShowRecurringForm(true); }}
+            onDelete={handleDeleteRecurring}
+            onToggle={handleToggleRecurring}
+          />
+        )}
+        {activeTab === 'analytics' && (
+          <AnalyticsTab
+            transactions={transactions}
+            categories={categories}
+            isDark={theme === 'dark'}
+          />
+        )}
         {activeTab === 'settings' && (
           <SettingsTab 
             theme={theme} 
@@ -204,9 +520,23 @@ export default function App() {
       </main>
 
       {/* FAB */}
-      <button className="fab" onClick={() => setShowAddForm(true)}>
-        <span>+</span>
-      </button>
+      {activeTab === 'dashboard' || activeTab === 'history' ? (
+        <button className="fab" onClick={() => setShowAddForm(true)}>
+          <span>+</span>
+        </button>
+      ) : activeTab === 'budgets' ? (
+        <button className="fab" onClick={() => { setEditingBudget(null); setShowBudgetForm(true); }}>
+          <span>+</span>
+        </button>
+      ) : activeTab === 'goals' ? (
+        <button className="fab" onClick={() => { setEditingGoal(null); setShowGoalForm(true); }}>
+          <span>+</span>
+        </button>
+      ) : activeTab === 'recurring' ? (
+        <button className="fab" onClick={() => { setEditingRecurring(null); setShowRecurringForm(true); }}>
+          <span>+</span>
+        </button>
+      ) : null}
 
       {/* Add Modal */}
       {showAddForm && (
@@ -219,11 +549,64 @@ export default function App() {
         />
       )}
 
+      {/* Budget Modal */}
+      {showBudgetForm && (
+        <Modal onClose={() => { setShowBudgetForm(false); setEditingBudget(null); }}>
+          <BudgetForm
+            budget={editingBudget || undefined}
+            categories={categories}
+            onSave={handleSaveBudget}
+            onCancel={() => { setShowBudgetForm(false); setEditingBudget(null); }}
+          />
+        </Modal>
+      )}
+
+      {/* Goal Modal */}
+      {showGoalForm && (
+        <Modal onClose={() => { setShowGoalForm(false); setEditingGoal(null); }}>
+          <GoalForm
+            goal={editingGoal || undefined}
+            onSave={handleSaveGoal}
+            onCancel={() => { setShowGoalForm(false); setEditingGoal(null); }}
+          />
+        </Modal>
+      )}
+
+      {/* Contribution Modal */}
+      {showContributionForm && contributionGoalId && (
+        <Modal onClose={() => { setShowContributionForm(false); setContributionGoalId(null); }}>
+          <ContributionForm
+            goalId={contributionGoalId}
+            goalName={goals.find(g => g.id === contributionGoalId)?.name || ''}
+            users={users}
+            onSave={handleAddContribution}
+            onCancel={() => { setShowContributionForm(false); setContributionGoalId(null); }}
+          />
+        </Modal>
+      )}
+
+      {/* Recurring Payment Modal */}
+      {showRecurringForm && (
+        <Modal onClose={() => { setShowRecurringForm(false); setEditingRecurring(null); }}>
+          <RecurringPaymentForm
+            payment={editingRecurring || undefined}
+            users={users}
+            categories={categories}
+            onSave={handleSaveRecurring}
+            onCancel={() => { setShowRecurringForm(false); setEditingRecurring(null); }}
+          />
+        </Modal>
+      )}
+
       {/* Tab Bar */}
       <nav className="tab-bar">
         <TabButton icon="📊" label="Обзор" active={activeTab === 'dashboard'} onClick={() => setActiveTab('dashboard')} />
         <TabButton icon="📋" label="История" active={activeTab === 'history'} onClick={() => setActiveTab('history')} />
         <TabButton icon="📈" label="Статистика" active={activeTab === 'stats'} onClick={() => setActiveTab('stats')} />
+        <TabButton icon="💰" label="Бюджеты" active={activeTab === 'budgets'} onClick={() => setActiveTab('budgets')} />
+        <TabButton icon="🎯" label="Цели" active={activeTab === 'goals'} onClick={() => setActiveTab('goals')} />
+        <TabButton icon="🔄" label="Платежи" active={activeTab === 'recurring'} onClick={() => setActiveTab('recurring')} />
+        <TabButton icon="📊" label="Аналитика" active={activeTab === 'analytics'} onClick={() => setActiveTab('analytics')} />
         <TabButton icon="⚙️" label="Настройки" active={activeTab === 'settings'} onClick={() => setActiveTab('settings')} />
       </nav>
 
@@ -1237,18 +1620,6 @@ function isCurrentMonth(dateStr: string): boolean {
   return date.getMonth() === now.getMonth() && date.getFullYear() === now.getFullYear();
 }
 
-function formatMoney(amount: number): string {
-  return new Intl.NumberFormat('ru-RU', {
-    style: 'currency',
-    currency: 'RUB',
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0
-  }).format(amount);
-}
-
-function formatDate(dateStr: string): string {
-  return new Date(dateStr).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' });
-}
 
 // Default categories for demo mode
 const defaultCategories: AppCategory[] = [
