@@ -22,6 +22,7 @@ export default function App() {
   const [goals, setGoals] = useState<Goal[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
+  const [showAddForm, setShowAddForm] = useState(false);
 
   // Load data
   useEffect(() => {
@@ -48,6 +49,30 @@ export default function App() {
     }
     
     setLoading(false);
+  };
+
+  const handleAddTransaction = (newTx: Partial<Transaction>) => {
+    const tx: Transaction = {
+      id: `tx-${Date.now()}`,
+      family_id: 'family-1',
+      user_id: newTx.user_id || 'user-1',
+      type: newTx.type || 'expense',
+      amount: newTx.amount || 0,
+      currency: 'RUB',
+      category_id: newTx.category_id,
+      description: newTx.description,
+      date: newTx.date || new Date().toISOString(),
+      is_shared: newTx.is_shared || false,
+      is_recurring: false,
+      is_credit: newTx.is_credit || false,
+      tags: [],
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      category: categories.find(c => c.id === newTx.category_id)
+    };
+    
+    setTransactions(prev => [tx, ...prev]);
+    setShowAddForm(false);
   };
 
   // Calculate dashboard data
@@ -97,6 +122,20 @@ export default function App() {
           <SettingsTab theme={theme} setTheme={setTheme} />
         )}
       </main>
+
+      {/* FAB - Add Transaction Button */}
+      <button className="fab" onClick={() => setShowAddForm(true)}>
+        <span>+</span>
+      </button>
+
+      {/* Add Transaction Modal */}
+      {showAddForm && (
+        <AddTransactionModal
+          categories={categories}
+          onAdd={handleAddTransaction}
+          onClose={() => setShowAddForm(false)}
+        />
+      )}
 
       {/* Tab Bar */}
       <nav className="tab-bar">
@@ -551,6 +590,160 @@ function SettingsTab({ theme, setTheme }: { theme: 'light' | 'dark'; setTheme: (
         >
           GitHub репозиторий
         </a>
+      </div>
+    </div>
+  );
+}
+
+// ============================================
+// ADD TRANSACTION MODAL
+// ============================================
+
+function AddTransactionModal({ 
+  categories, 
+  onAdd, 
+  onClose 
+}: { 
+  categories: Category[];
+  onAdd: (tx: Partial<Transaction>) => void;
+  onClose: () => void;
+}) {
+  const [type, setType] = useState<'expense' | 'income'>('expense');
+  const [amount, setAmount] = useState('');
+  const [description, setDescription] = useState('');
+  const [categoryId, setCategoryId] = useState('');
+  const [isShared, setIsShared] = useState(false);
+  const [isCredit, setIsCredit] = useState(false);
+  const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+
+  const filteredCategories = categories.filter(c => c.type === type);
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (!amount || parseFloat(amount) <= 0) {
+      alert('Введите сумму');
+      return;
+    }
+
+    onAdd({
+      type,
+      amount: parseFloat(amount),
+      description: description || undefined,
+      category_id: categoryId || undefined,
+      is_shared: isShared,
+      is_credit: isCredit,
+      date: new Date(date).toISOString()
+    });
+  };
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" onClick={e => e.stopPropagation()}>
+        <div className="modal-header">
+          <h2>Новая транзакция</h2>
+          <button className="modal-close" onClick={onClose}>✕</button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="add-form">
+          {/* Type Toggle */}
+          <div className="type-toggle">
+            <button
+              type="button"
+              className={`type-btn ${type === 'expense' ? 'active expense' : ''}`}
+              onClick={() => setType('expense')}
+            >
+              Расход
+            </button>
+            <button
+              type="button"
+              className={`type-btn ${type === 'income' ? 'active income' : ''}`}
+              onClick={() => setType('income')}
+            >
+              Доход
+            </button>
+          </div>
+
+          {/* Amount */}
+          <div className="form-group">
+            <label>Сумма *</label>
+            <input
+              type="number"
+              value={amount}
+              onChange={e => setAmount(e.target.value)}
+              placeholder="0"
+              className="amount-input"
+              autoFocus
+            />
+          </div>
+
+          {/* Category */}
+          <div className="form-group">
+            <label>Категория</label>
+            <select
+              value={categoryId}
+              onChange={e => setCategoryId(e.target.value)}
+              className="select-input"
+            >
+              <option value="">Без категории</option>
+              {filteredCategories.map(cat => (
+                <option key={cat.id} value={cat.id}>
+                  {cat.icon} {cat.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Description */}
+          <div className="form-group">
+            <label>Описание</label>
+            <input
+              type="text"
+              value={description}
+              onChange={e => setDescription(e.target.value)}
+              placeholder="Комментарий..."
+              className="text-input"
+            />
+          </div>
+
+          {/* Date */}
+          <div className="form-group">
+            <label>Дата</label>
+            <input
+              type="date"
+              value={date}
+              onChange={e => setDate(e.target.value)}
+              className="date-input"
+            />
+          </div>
+
+          {/* Flags */}
+          {type === 'expense' && (
+            <div className="flags-row">
+              <label className="checkbox-label">
+                <input
+                  type="checkbox"
+                  checked={isShared}
+                  onChange={e => setIsShared(e.target.checked)}
+                />
+                <span>👥 Общий расход</span>
+              </label>
+              <label className="checkbox-label">
+                <input
+                  type="checkbox"
+                  checked={isCredit}
+                  onChange={e => setIsCredit(e.target.checked)}
+                />
+                <span>💳 В кредит</span>
+              </label>
+            </div>
+          )}
+
+          {/* Submit */}
+          <button type="submit" className="submit-btn">
+            {type === 'expense' ? '➖ Добавить расход' : '➕ Добавить доход'}
+          </button>
+        </form>
       </div>
     </div>
   );
