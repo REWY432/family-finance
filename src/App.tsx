@@ -1,5 +1,10 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { db, isDemoMode, AppUser, AppTransaction, AppCategory } from './lib/supabase';
+import { AutoCategoryService } from './services/autocategory';
+import { HealthService } from './services/health';
+import { ML } from './services/ml';
+import { AnomalyService } from './services/anomaly';
+import { appCategoryToCategory, appTransactionToTransaction, findCategoryIdByName } from './utils/typeAdapters';
 
 // ============================================
 // TYPES
@@ -154,7 +159,7 @@ export default function App() {
       {/* Content */}
       <main className="content">
         {activeTab === 'dashboard' && (
-          <DashboardTab stats={stats} users={users} transactions={transactions} />
+          <DashboardTab stats={stats} users={users} transactions={transactions} categories={categories} />
         )}
         {activeTab === 'history' && (
           <HistoryTab 
@@ -186,6 +191,7 @@ export default function App() {
         <AddTransactionModal
           users={users}
           categories={categories}
+          transactions={transactions}
           onAdd={handleAddTransaction}
           onClose={() => setShowAddForm(false)}
         />
@@ -282,12 +288,74 @@ function TabButton({ icon, label, active, onClick }: {
 // DASHBOARD TAB
 // ============================================
 
-function DashboardTab({ stats, users, transactions }: { 
+function DashboardTab({ stats, users, transactions, categories }: { 
   stats: Stats; 
   users: AppUser[];
   transactions: AppTransaction[];
+  categories: AppCategory[];
 }) {
   const recentTx = transactions.slice(0, 5);
+  
+  // Calculate financial health
+  const healthAnalysis = useMemo(() => {
+    try {
+      const serviceCategories = categories.map(c => appCategoryToCategory(c));
+      const serviceTransactions = transactions.map(tx => appTransactionToTransaction(tx));
+      
+      // Convert AppTransaction to Transaction with category_id
+      const transactionsWithCategories = serviceTransactions.map(tx => {
+        const categoryName = transactions.find(t => t.id === tx.id)?.category;
+        const categoryId = categoryName ? findCategoryIdByName(categoryName, categories) : undefined;
+        return { ...tx, category_id: categoryId };
+      });
+      
+      return HealthService.analyzeFinancialHealth(
+        transactionsWithCategories,
+        [], // budgets - not implemented yet
+        []  // goals - not implemented yet
+      );
+    } catch (error) {
+      console.error('Health analysis error:', error);
+      return null;
+    }
+  }, [transactions, categories]);
+
+  // Detect anomalies in recent transactions
+  const recentAnomalies = useMemo(() => {
+    try {
+      const serviceCategories = categories.map(c => appCategoryToCategory(c));
+      const serviceTransactions = transactions.map(tx => appTransactionToTransaction(tx));
+      
+      // Check last 10 transactions for anomalies
+      const recentTransactions = transactions.slice(0, 10);
+      const anomalies: Array<{ tx: AppTransaction; anomalies: any[] }> = [];
+      
+      recentTransactions.forEach(tx => {
+        const serviceTx = serviceTransactions.find(t => t.id === tx.id);
+        if (serviceTx && tx.type === 'expense') {
+          const txWithCategory = {
+            ...serviceTx,
+            category_id: tx.category ? findCategoryIdByName(tx.category, categories) : undefined
+          };
+          
+          const detected = AnomalyService.detectTransactionAnomalies(
+            txWithCategory,
+            serviceTransactions,
+            serviceCategories
+          );
+          
+          if (detected.length > 0) {
+            anomalies.push({ tx, anomalies: detected });
+          }
+        }
+      });
+      
+      return anomalies.slice(0, 3); // Show max 3
+    } catch (error) {
+      console.error('Anomaly detection error:', error);
+      return [];
+    }
+  }, [transactions, categories]);
 
   return (
     <div className="tab-content">
@@ -306,6 +374,48 @@ function DashboardTab({ stats, users, transactions }: {
           </div>
         </div>
       </div>
+
+      {/* Financial Health Card */}
+      {healthAnalysis && (
+        <div className="card">
+          <h3 className="card-title">💚 Финансовое здоровье</h3>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '12px' }}>
+            <div style={{ 
+              fontSize: '36px', 
+              fontWeight: '700',
+              color: `var(--${healthAnalysis.score.grade === 'A' || healthAnalysis.score.grade === 'B' ? 'green' : healthAnalysis.score.grade === 'C' ? 'yellow' : 'red'})`
+            }}>
+              {healthAnalysis.score.overall}
+            </div>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: '18px', fontWeight: '600', marginBottom: '4px' }}>
+                {healthAnalysis.score.emoji} {healthAnalysis.score.grade}
+              </div>
+              <div style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
+                {healthAnalysis.score.summary}
+              </div>
+            </div>
+          </div>
+          {healthAnalysis.recommendations.length > 0 && (
+            <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: '1px solid var(--bg-tertiary)' }}>
+              <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '8px' }}>
+                Рекомендации:
+              </div>
+              {healthAnalysis.recommendations.slice(0, 2).map((rec, idx) => (
+                <div key={idx} style={{ 
+                  fontSize: '13px', 
+                  padding: '8px',
+                  background: 'var(--bg-tertiary)',
+                  borderRadius: '8px',
+                  marginBottom: '6px'
+                }}>
+                  <strong>{rec.title}</strong> - {rec.description}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* User Stats */}
       <div className="card">
@@ -340,6 +450,35 @@ function DashboardTab({ stats, users, transactions }: {
               <p><strong>{users[0]?.name}</strong> должен(а) <strong>{users[1]?.name}</strong></p>
             )}
             <div className="debt-amount">{formatMoney(Math.abs(stats.debt))}</div>
+          </div>
+        </div>
+      )}
+
+      {/* Anomalies */}
+      {recentAnomalies.length > 0 && (
+        <div className="card alert-card">
+          <h3 className="card-title">⚠️ Обнаружены аномалии</h3>
+          <div className="anomalies-list">
+            {recentAnomalies.map(({ tx, anomalies }, idx) => (
+              <div key={idx} style={{ 
+                padding: '12px 0',
+                borderBottom: idx < recentAnomalies.length - 1 ? '1px solid var(--bg-tertiary)' : 'none'
+              }}>
+                <div style={{ fontSize: '13px', fontWeight: '500', marginBottom: '4px' }}>
+                  {tx.description || tx.category || 'Транзакция'} - {formatMoney(tx.amount)}
+                </div>
+                {anomalies.map((anomaly, aidx) => (
+                  <div key={aidx} style={{ 
+                    fontSize: '12px', 
+                    color: anomaly.severity === 'alert' ? 'var(--red)' : 
+                           anomaly.severity === 'warning' ? 'var(--orange)' : 'var(--text-secondary)',
+                    marginTop: '4px'
+                  }}>
+                    {anomaly.message}
+                  </div>
+                ))}
+              </div>
+            ))}
           </div>
         </div>
       )}
@@ -470,6 +609,43 @@ function StatsTab({ stats, users, transactions }: {
 
   const totalCategoryExpense = sortedCategories.reduce((sum, [, amount]) => sum + amount, 0);
 
+  // Generate expense forecasts
+  const forecasts = useMemo(() => {
+    try {
+      // Get last 6 months of expense data
+      const now = new Date();
+      const sixMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 5, 1);
+      
+      const monthlyExpenses: { date: Date; amount: number }[] = [];
+      const expenses = transactions.filter(t => t.type === 'expense' && new Date(t.date) >= sixMonthsAgo);
+      
+      // Group by month
+      const byMonth: Record<string, number> = {};
+      expenses.forEach(t => {
+        const monthKey = t.date.substring(0, 7); // YYYY-MM
+        byMonth[monthKey] = (byMonth[monthKey] || 0) + t.amount;
+      });
+      
+      // Convert to array and sort
+      Object.entries(byMonth)
+        .sort((a, b) => a[0].localeCompare(b[0]))
+        .forEach(([month, amount]) => {
+          monthlyExpenses.push({
+            date: new Date(month + '-01'),
+            amount
+          });
+        });
+      
+      if (monthlyExpenses.length >= 3) {
+        return ML.forecastExpenses(monthlyExpenses, 3);
+      }
+      return [];
+    } catch (error) {
+      console.error('Forecast error:', error);
+      return [];
+    }
+  }, [transactions]);
+
   return (
     <div className="tab-content">
       {/* User Comparison */}
@@ -546,6 +722,30 @@ function StatsTab({ stats, users, transactions }: {
         <div className="card">
           <h3 className="card-title">💳 В кредит</h3>
           <p className="stat-value">{formatMoney(stats.creditExpense)}</p>
+        </div>
+      )}
+
+      {/* Forecasts */}
+      {forecasts.length > 0 && (
+        <div className="card">
+          <h3 className="card-title">📊 Прогноз расходов</h3>
+          <div className="forecast-list">
+            {forecasts.map((forecast, idx) => (
+              <div key={idx} className="forecast-item">
+                <div>
+                  <div style={{ fontSize: '14px', fontWeight: '500' }}>
+                    {new Date(forecast.date).toLocaleDateString('ru-RU', { month: 'long', year: 'numeric' })}
+                  </div>
+                  <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
+                    {formatMoney(forecast.confidence_low)} - {formatMoney(forecast.confidence_high)}
+                  </div>
+                </div>
+                <div style={{ fontSize: '16px', fontWeight: '600' }}>
+                  {formatMoney(forecast.predicted_expense)}
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </div>
@@ -655,12 +855,14 @@ function SettingsTab({
 
 function AddTransactionModal({ 
   users,
-  categories, 
+  categories,
+  transactions,
   onAdd, 
   onClose 
 }: { 
   users: AppUser[];
   categories: AppCategory[];
+  transactions: AppTransaction[];
   onAdd: (data: {
     user_id: string;
     type: 'income' | 'expense';
@@ -681,8 +883,44 @@ function AddTransactionModal({
   const [isShared, setIsShared] = useState(false);
   const [isCredit, setIsCredit] = useState(false);
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+  const [predictedCategory, setPredictedCategory] = useState<string | null>(null);
+  const [predictionConfidence, setPredictionConfidence] = useState<number>(0);
 
   const filteredCategories = categories.filter(c => c.type === type);
+
+  // Auto-categorize when description changes
+  useEffect(() => {
+    if (description.trim().length > 3) {
+      try {
+        const serviceCategories = categories.map(c => appCategoryToCategory(c));
+        const serviceTransactions = transactions.map(tx => appTransactionToTransaction(tx));
+        
+        const prediction = AutoCategoryService.predictCategory(
+          description,
+          serviceCategories,
+          serviceTransactions
+        );
+        
+        if (prediction && prediction.confidence > 0.5) {
+          setPredictedCategory(prediction.category_name);
+          setPredictionConfidence(prediction.confidence);
+          
+          // Auto-select category if confidence is high
+          if (prediction.confidence > 0.7 && !category) {
+            setCategory(prediction.category_name);
+          }
+        } else {
+          setPredictedCategory(null);
+          setPredictionConfidence(0);
+        }
+      } catch (error) {
+        console.error('Auto-categorization error:', error);
+      }
+    } else {
+      setPredictedCategory(null);
+      setPredictionConfidence(0);
+    }
+  }, [description, categories, transactions, category]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -766,16 +1004,30 @@ function AddTransactionModal({
 
           {/* Category */}
           <div className="form-group">
-            <label>Категория</label>
+            <label>
+              Категория
+              {predictedCategory && (
+                <span className="prediction-hint" style={{ 
+                  fontSize: '11px', 
+                  color: 'var(--text-secondary)',
+                  fontWeight: 'normal',
+                  marginLeft: '8px'
+                }}>
+                  (предложено: {predictedCategory} {Math.round(predictionConfidence * 100)}%)
+                </span>
+              )}
+            </label>
             <select
               value={category}
               onChange={e => setCategory(e.target.value)}
               className="select-input"
+              style={predictedCategory && !category ? { borderColor: 'var(--accent)' } : undefined}
             >
               <option value="">Выберите...</option>
               {filteredCategories.map(cat => (
                 <option key={cat.id} value={cat.name}>
                   {cat.icon} {cat.name}
+                  {predictedCategory === cat.name && ` (${Math.round(predictionConfidence * 100)}%)`}
                 </option>
               ))}
             </select>
