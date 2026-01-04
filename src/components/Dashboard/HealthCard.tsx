@@ -88,12 +88,11 @@ export const HealthCard = memo(function HealthCard({ transactions, categories, b
           <div 
             className="health-score-circle"
             style={{ 
-              background: `conic-gradient(${getGradeColor(healthAnalysis.score.grade)} ${healthAnalysis.score.overall * 3.6}deg, var(--bg-tertiary) 0deg)`
+              background: `conic-gradient(${getGradeColor(healthAnalysis.score.grade)} ${Math.round(healthAnalysis.score.overall) * 3.6}deg, var(--bg-tertiary) 0deg)`
             }}
           >
             <div className="health-score-inner">
-              <span className="health-score-value">{healthAnalysis.score.overall}</span>
-              <span className="health-score-emoji">{healthAnalysis.score.emoji}</span>
+              <span className="health-score-value">{Math.round(healthAnalysis.score.overall)}</span>
             </div>
           </div>
           <div className="health-score-info">
@@ -130,6 +129,8 @@ export const HealthCard = memo(function HealthCard({ transactions, categories, b
 });
 
 function ScoreBar({ label, value }: { label: string; value: number }) {
+  const roundedValue = Math.round(value);
+  
   const getColor = (v: number) => {
     if (v >= 80) return 'var(--green)';
     if (v >= 60) return 'var(--yellow)';
@@ -141,14 +142,14 @@ function ScoreBar({ label, value }: { label: string; value: number }) {
     <div className="score-bar-item">
       <div className="score-bar-header">
         <span>{label}</span>
-        <span>{value}</span>
+        <span>{roundedValue}</span>
       </div>
       <div className="score-bar-track">
         <div 
           className="score-bar-fill animated"
           style={{ 
-            width: `${value}%`,
-            backgroundColor: getColor(value)
+            width: `${roundedValue}%`,
+            backgroundColor: getColor(roundedValue)
           }}
         />
       </div>
