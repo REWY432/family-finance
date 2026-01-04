@@ -80,7 +80,7 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks: {
-          'react-vendor': ['react', 'react-dom', 'react-router-dom'],
+          'react-vendor': ['react', 'react-dom'],
           'chart-vendor': ['chart.js', 'react-chartjs-2'],
           'supabase': ['@supabase/supabase-js']
         }
