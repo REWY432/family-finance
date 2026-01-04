@@ -1,0 +1,2 @@
+export { SpendingHabits } from './SpendingHabits';
+

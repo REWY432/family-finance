@@ -1,3 +1,9 @@
+/* Import additional styles */
+@import './styles/animations.css';
+@import './styles/glassmorphism.css';
+@import './styles/calculator.css';
+@import './styles/habits.css';
+
 /* ============================================
    CSS Variables
    ============================================ */

@@ -1,0 +1,381 @@
+/* ============================================
+   GLASSMORPHISM STYLES
+   ============================================ */
+
+/* Glass effect for cards */
+.glass {
+  background: rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.dark .glass {
+  background: rgba(28, 28, 30, 0.8);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+:root:not(.dark) .glass {
+  background: rgba(255, 255, 255, 0.7);
+  border: 1px solid rgba(0, 0, 0, 0.05);
+}
+
+/* Enhanced balance card */
+.balance-card {
+  background: linear-gradient(135deg, #007aff 0%, #5856d6 50%, #af52de 100%);
+  background-size: 200% 200%;
+  animation: gradientShift 8s ease infinite;
+  color: white;
+  border: none;
+  position: relative;
+  overflow: hidden;
+}
+
+.balance-card::before {
+  content: '';
+  position: absolute;
+  top: -50%;
+  left: -50%;
+  width: 200%;
+  height: 200%;
+  background: radial-gradient(circle, rgba(255,255,255,0.1) 0%, transparent 70%);
+  pointer-events: none;
+}
+
+.balance-card.negative {
+  background: linear-gradient(135deg, #ff3b30 0%, #ff6b6b 50%, #ff9500 100%);
+}
+
+.balance-card.positive {
+  background: linear-gradient(135deg, #34c759 0%, #30d158 50%, #007aff 100%);
+}
+
+/* Balance daily stats */
+.balance-daily {
+  display: flex;
+  gap: 16px;
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.daily-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.daily-label {
+  font-size: 11px;
+  opacity: 0.8;
+}
+
+.daily-value {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+/* Debt card with gradient */
+.debt-card {
+  background: linear-gradient(135deg, #5856d6 0%, #007aff 100%);
+  color: white;
+  border: none;
+}
+
+.debt-card.glass {
+  background: linear-gradient(135deg, rgba(88, 86, 214, 0.9) 0%, rgba(0, 122, 255, 0.9) 100%);
+}
+
+/* Health card */
+.health-card {
+  position: relative;
+  overflow: hidden;
+}
+
+.health-content {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.health-score-display {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.health-score-circle {
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.health-score-inner {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: var(--bg-secondary);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.health-score-value {
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.health-score-emoji {
+  font-size: 14px;
+  margin-top: 2px;
+}
+
+.health-score-info {
+  flex: 1;
+}
+
+.health-grade {
+  font-size: 18px;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.health-summary {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.health-breakdown {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.health-recommendation {
+  display: flex;
+  gap: 12px;
+  padding: 12px;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-md);
+  margin-top: 8px;
+}
+
+.recommendation-icon {
+  font-size: 24px;
+}
+
+.recommendation-content strong {
+  display: block;
+  font-size: 13px;
+  margin-bottom: 4px;
+}
+
+.recommendation-content p {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+/* Transaction group */
+.transaction-group {
+  margin-bottom: 16px;
+}
+
+.group-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 4px;
+  font-size: 13px;
+}
+
+.group-date {
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.group-total {
+  font-weight: 600;
+}
+
+.group-total.income {
+  color: var(--green);
+}
+
+.group-total.expense {
+  color: var(--red);
+}
+
+/* Search bar */
+.search-bar {
+  position: relative;
+  margin-bottom: 12px;
+}
+
+.search-icon {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 16px;
+}
+
+.search-input {
+  width: 100%;
+  padding: 12px 40px;
+  font-size: 15px;
+  border: 1px solid var(--bg-tertiary);
+  border-radius: var(--radius-md);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+}
+
+.search-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.search-clear {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 14px;
+}
+
+/* Pull to refresh */
+.pull-to-refresh-container {
+  position: relative;
+  overflow: hidden;
+}
+
+.pull-indicator {
+  position: absolute;
+  top: -50px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  transition: opacity 0.2s, transform 0.2s;
+  z-index: 10;
+}
+
+.pull-spinner {
+  font-size: 24px;
+  transition: transform 0.3s;
+}
+
+.pull-spinner.triggered {
+  transform: rotate(180deg);
+}
+
+.pull-text {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.pull-content {
+  will-change: transform;
+}
+
+/* Templates section */
+.templates-section {
+  padding: 0 20px;
+  margin-bottom: 12px;
+}
+
+.templates-toggle {
+  width: 100%;
+  padding: 10px;
+  background: var(--bg-tertiary);
+  border: none;
+  border-radius: var(--radius-md);
+  color: var(--accent);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.templates-list {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.template-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--bg-tertiary);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.2s;
+}
+
+.template-item:hover {
+  background: var(--bg-tertiary);
+}
+
+.template-icon {
+  font-size: 18px;
+}
+
+.template-name {
+  flex: 1;
+  font-size: 14px;
+}
+
+.template-amount {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+/* Save template */
+.save-template-section {
+  margin-bottom: 16px;
+}
+
+.save-template-toggle {
+  width: 100%;
+  padding: 10px;
+  background: transparent;
+  border: 1px dashed var(--bg-tertiary);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.save-template-form {
+  display: flex;
+  gap: 8px;
+}
+
+.save-template-form .text-input {
+  flex: 1;
+}
+
+/* Prediction hint */
+.prediction-hint {
+  font-size: 11px;
+  color: var(--text-secondary);
+  font-weight: normal;
+  margin-left: 8px;
+}
+

@@ -1,0 +1,2 @@
+export { HistoryTab } from './HistoryTab';
+

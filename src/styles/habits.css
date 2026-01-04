@@ -1,0 +1,82 @@
+/* ============================================
+   HABITS STYLES
+   ============================================ */
+
+.habits-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.habit-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-md);
+  border-left: 3px solid var(--accent);
+}
+
+.habit-item.good {
+  border-left-color: var(--green);
+}
+
+.habit-item.warning {
+  border-left-color: var(--orange);
+}
+
+.habit-item.info {
+  border-left-color: var(--accent);
+}
+
+.habit-icon {
+  font-size: 24px;
+  flex-shrink: 0;
+}
+
+.habit-content {
+  flex: 1;
+}
+
+.habit-title {
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.habit-description {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.empty-state-mini {
+  padding: 20px;
+  text-align: center;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+/* Action buttons */
+.action-btn {
+  padding: 6px 8px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: 14px;
+  border-radius: var(--radius-sm);
+  transition: background 0.2s, transform 0.2s;
+}
+
+.action-btn:hover {
+  transform: scale(1.1);
+}
+
+.action-btn.edit:hover {
+  background: rgba(0, 122, 255, 0.15);
+}
+
+.action-btn.delete:hover {
+  background: rgba(255, 59, 48, 0.15);
+}
+
